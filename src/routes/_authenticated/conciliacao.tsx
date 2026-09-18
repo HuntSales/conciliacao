@@ -1,0 +1,310 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { Shell, TituloPagina } from "@/components/corp/Shell";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/corp/EmptyState";
+import { FiltroPeriodo, type Periodo } from "@/components/conciliacao/FiltroPeriodo";
+import { ResumoTopo } from "@/components/conciliacao/ResumoTopo";
+import { CardAsaas } from "@/components/conciliacao/CardAsaas";
+import { CardGranatum } from "@/components/conciliacao/CardGranatum";
+import { FormCriarLancamento } from "@/components/conciliacao/FormCriarLancamento";
+import {
+  buscarLancamentos,
+  confirmarPar,
+  desfazerPar,
+  listarCadastros,
+  type ItemAsaas,
+  type ItemGranatum,
+} from "@/lib/conciliacao.functions";
+import { hojeIso } from "@/lib/format";
+
+export const Route = createFileRoute("/_authenticated/conciliacao")({
+  head: () => ({ meta: [{ title: "Conciliação — Asaas × Granatum" }] }),
+  component: ConciliacaoPage,
+});
+
+const NAV = [
+  { rotulo: "Conciliação", para: "/conciliacao", exato: true },
+  { rotulo: "Integrações", para: "/integracoes" },
+  { rotulo: "Histórico", para: "/historico" },
+];
+
+type FiltroRapido = "todos" | "conciliados" | "pendentes_asaas" | "pendentes_granatum";
+
+type Linha = { asaas: ItemAsaas | null; granatum: ItemGranatum | null };
+
+function montarLinhas(asaas: ItemAsaas[], granatum: ItemGranatum[]): Linha[] {
+  const usados = new Set<string>();
+  const linhas: Linha[] = [];
+  for (const a of asaas) {
+    const g = a.parGranatumId ? (granatum.find((x) => x.id === a.parGranatumId) ?? null) : null;
+    if (g) usados.add(g.id);
+    linhas.push({ asaas: a, granatum: g });
+  }
+  for (const g of granatum) {
+    if (!usados.has(g.id) && !g.parAsaasId) linhas.push({ asaas: null, granatum: g });
+  }
+  linhas.sort((x, y) => {
+    const da = x.asaas?.data ?? x.granatum?.data ?? "";
+    const db = y.asaas?.data ?? y.granatum?.data ?? "";
+    return da < db ? 1 : da > db ? -1 : 0;
+  });
+  return linhas;
+}
+
+function ConciliacaoPage() {
+  const queryClient = useQueryClient();
+  const [periodo, setPeriodo] = useState<Periodo>({
+    dataInicio: hojeIso(),
+    dataFim: hojeIso(),
+    toleranciaDias: 0,
+  });
+  const [filtro, setFiltro] = useState<FiltroRapido>("todos");
+  const [selecaoAsaas, setSelecaoAsaas] = useState<string | null>(null);
+  const [selecaoGranatum, setSelecaoGranatum] = useState<string | null>(null);
+  const [itemParaCriar, setItemParaCriar] = useState<ItemAsaas | null>(null);
+  const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
+
+  const cadastros = useQuery({
+    queryKey: ["cadastros"],
+    queryFn: () => listarCadastros(),
+    staleTime: Infinity,
+  });
+
+  const busca = useMutation({
+    mutationFn: () => buscarLancamentos({ data: periodo }),
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Falha ao buscar lançamentos"),
+  });
+
+  const invalidarBusca = () => busca.mutate();
+
+  const confirmar = useMutation({
+    mutationFn: confirmarPar,
+    onSuccess: () => {
+      toast.success("Conciliado");
+      invalidarBusca();
+    },
+    onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar"),
+  });
+
+  const desfazer = useMutation({
+    mutationFn: desfazerPar,
+    onSuccess: () => {
+      toast.success("Par desfeito");
+      invalidarBusca();
+    },
+    onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao desfazer"),
+  });
+
+  const dados = busca.data;
+
+  const linhas = useMemo(() => {
+    if (!dados) return [];
+    const asaasAjustado = dados.asaas.map((a) =>
+      rejeitados.has(a.id) ? { ...a, parGranatumId: null, tipoPar: null } : a,
+    );
+    const granatumAjustado = dados.granatum.map((g) =>
+      rejeitados.has(g.id) ? { ...g, parAsaasId: null, tipoPar: null } : g,
+    );
+    return montarLinhas(asaasAjustado, granatumAjustado);
+  }, [dados, rejeitados]);
+
+  const linhasFiltradas = linhas.filter((l) => {
+    if (filtro === "todos") return true;
+    if (filtro === "conciliados") return Boolean(l.asaas && l.granatum);
+    if (filtro === "pendentes_asaas") return Boolean(l.asaas && !l.granatum);
+    return Boolean(l.granatum && !l.asaas);
+  });
+
+  const podeConciliarManual = selecaoAsaas && selecaoGranatum;
+
+  const conciliarManual = () => {
+    if (!selecaoAsaas || !selecaoGranatum || !dados) return;
+    const g = dados.granatum.find((x) => x.id === selecaoGranatum);
+    if (!g) return;
+    confirmar.mutate(
+      {
+        data: {
+          asaasId: selecaoAsaas,
+          granatumId: selecaoGranatum,
+          data: g.data,
+          valor: g.valor,
+          tipo: "manual",
+        },
+      },
+      {
+        onSuccess: () => {
+          setSelecaoAsaas(null);
+          setSelecaoGranatum(null);
+        },
+      },
+    );
+  };
+
+  return (
+    <Shell itens={NAV} contexto="Conciliação">
+      <TituloPagina
+        titulo="Conciliação"
+        subtitulo="Ligue automaticamente o extrato do Asaas aos lançamentos do Granatum."
+        acao={
+          <Button variant="ghostCorp" size="sm" onClick={() => cadastros.refetch()}>
+            <RefreshCw /> Recarregar cadastros
+          </Button>
+        }
+      />
+
+      <div className="space-y-6">
+        <FiltroPeriodo
+          periodo={periodo}
+          onMudar={setPeriodo}
+          onBuscar={() => busca.mutate()}
+          buscando={busca.isPending}
+        />
+
+        {dados ? (
+          <>
+            <ResumoTopo
+              totalAsaas={dados.resumo.totalAsaas}
+              totalGranatum={dados.resumo.totalGranatum}
+              conciliadosAsaas={dados.resumo.conciliadosAsaas}
+              conciliadosGranatum={dados.resumo.conciliadosGranatum}
+              pendentesAsaas={dados.resumo.pendentesAsaas}
+              pendentesGranatum={dados.resumo.pendentesGranatum}
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-2">
+                {(
+                  [
+                    ["todos", "Todos"],
+                    ["conciliados", "Conciliados"],
+                    ["pendentes_asaas", "Pendentes Asaas"],
+                    ["pendentes_granatum", "Pendentes Granatum"],
+                  ] as const
+                ).map(([valor, rotulo]) => (
+                  <Button
+                    key={valor}
+                    variant={filtro === valor ? "corp" : "corpOutline"}
+                    size="sm"
+                    onClick={() => setFiltro(valor)}
+                  >
+                    {rotulo}
+                  </Button>
+                ))}
+              </div>
+              {podeConciliarManual ? (
+                <Button variant="corp" size="sm" onClick={conciliarManual}>
+                  Conciliar selecionados
+                </Button>
+              ) : null}
+            </div>
+
+            {linhasFiltradas.length === 0 ? (
+              <EmptyState
+                icone={RefreshCw}
+                titulo="Nada por aqui"
+                descricao="Nenhum lançamento neste filtro para o período buscado."
+              />
+            ) : (
+              <div className="space-y-3">
+                {linhasFiltradas.map((linha, i) => (
+                  <div
+                    key={`${linha.asaas?.id ?? "x"}-${linha.granatum?.id ?? "x"}-${i}`}
+                    className="grid grid-cols-1 items-stretch gap-0 md:grid-cols-[1fr_28px_1fr]"
+                  >
+                    <div>
+                      {linha.asaas ? (
+                        <CardAsaas
+                          item={linha.asaas}
+                          selecionavel={!linha.asaas.tipoPar}
+                          selecionado={selecaoAsaas === linha.asaas.id}
+                          onSelecionar={(m) => setSelecaoAsaas(m ? linha.asaas!.id : null)}
+                          onCriarNoGranatum={() => setItemParaCriar(linha.asaas)}
+                        />
+                      ) : (
+                        <div className="h-full rounded-none border border-dashed border-border/50" />
+                      )}
+                    </div>
+                    <div className="hidden items-center justify-center md:flex">
+                      {linha.asaas && linha.granatum ? (
+                        <div
+                          className={`h-0.5 w-full ${
+                            linha.asaas.tipoPar === "sugestao"
+                              ? "border-t-2 border-dashed border-gold/60"
+                              : "bg-primary"
+                          }`}
+                        />
+                      ) : null}
+                    </div>
+                    <div>
+                      {linha.granatum ? (
+                        <CardGranatum
+                          item={linha.granatum}
+                          categorias={cadastros.data?.categorias ?? []}
+                          centros={cadastros.data?.centrosCusto ?? []}
+                          selecionavel={!linha.granatum.tipoPar}
+                          selecionado={selecaoGranatum === linha.granatum.id}
+                          onSelecionar={(m) => setSelecaoGranatum(m ? linha.granatum!.id : null)}
+                          onSalvo={invalidarBusca}
+                          onDesfazer={
+                            linha.asaas
+                              ? () => desfazer.mutate({ data: { asaasId: linha.asaas!.id } })
+                              : undefined
+                          }
+                          onConfirmarSugestao={
+                            linha.asaas
+                              ? () =>
+                                  confirmar.mutate({
+                                    data: {
+                                      asaasId: linha.asaas!.id,
+                                      granatumId: linha.granatum!.id,
+                                      data: linha.granatum!.data,
+                                      valor: linha.granatum!.valor,
+                                      tipo: "manual",
+                                    },
+                                  })
+                              : undefined
+                          }
+                          onRejeitarSugestao={() => {
+                            if (!linha.asaas || !linha.granatum) return;
+                            setRejeitados((prev) =>
+                              new Set(prev).add(linha.asaas!.id).add(linha.granatum!.id),
+                            );
+                          }}
+                        />
+                      ) : (
+                        <div className="h-full rounded-none border border-dashed border-border/50" />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState
+            icone={RefreshCw}
+            titulo="Nenhum dado carregado"
+            descricao="Escolha o período e clique em 'Buscar lançamentos' para começar a conciliar."
+          />
+        )}
+      </div>
+
+      <FormCriarLancamento
+        item={itemParaCriar}
+        categorias={cadastros.data?.categorias ?? []}
+        centros={cadastros.data?.centrosCusto ?? []}
+        aberto={Boolean(itemParaCriar)}
+        onFechar={() => setItemParaCriar(null)}
+        onCriado={() => {
+          setItemParaCriar(null);
+          invalidarBusca();
+        }}
+      />
+    </Shell>
+  );
+}
