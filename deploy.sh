@@ -21,8 +21,8 @@ docker build \
 
 docker rm -f conciliacao 2>/dev/null || true
 docker run -d --name conciliacao --restart unless-stopped \
-  --env-file ./.env -e PORT=3000 -p 127.0.0.1:3000:3000 \
+  --env-file ./.env -e PORT=3000 -p 127.0.0.1:3004:3000 \
   conciliacao:latest
 
 sleep 2
-curl -sf -o /dev/null http://127.0.0.1:3000/ && echo "OK: conciliacao respondendo em 127.0.0.1:3000"
+curl -sf -o /dev/null http://127.0.0.1:3004/ && echo "OK: conciliacao respondendo em 127.0.0.1:3004"
