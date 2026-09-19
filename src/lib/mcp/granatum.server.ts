@@ -107,7 +107,17 @@ async function restFallback(): Promise<{ token: string; urlBase: string }> {
 
 // --- contas -----------------------------------------------------------
 
-type ContaBruta = { id: number | string; descricao: string; ativo?: boolean };
+type ContaBruta = {
+  id: number | string;
+  descricao: string;
+  ativo?: boolean;
+  saldo?: string | number;
+};
+
+function normalizarConta(c: ContaBruta): ContaGranatum {
+  const saldo = typeof c.saldo === "string" ? Number.parseFloat(c.saldo) : (c.saldo ?? 0);
+  return { id: String(c.id), nome: c.descricao, saldo };
+}
 
 export async function listarContasGranatum(): Promise<ContaGranatum[]> {
   const via = await acesso("contas");
@@ -122,7 +132,15 @@ export async function listarContasGranatum(): Promise<ContaGranatum[]> {
         return (await resposta.json()) as ContaBruta[];
       })();
 
-  return brutas.map((c) => ({ id: String(c.id), nome: c.descricao }));
+  return brutas.map(normalizarConta);
+}
+
+/** Saldo atual (em tempo real) de uma conta específica do Granatum. */
+export async function buscarSaldoContaGranatum(contaId: string): Promise<number> {
+  const contas = await listarContasGranatum();
+  const conta = contas.find((c) => c.id === contaId);
+  if (!conta) throw new Error("Conta do Granatum não encontrada — reconfigure em Integrações.");
+  return conta.saldo;
 }
 
 // --- categorias ---------------------------------------------------------

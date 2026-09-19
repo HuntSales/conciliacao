@@ -126,6 +126,22 @@ histórico mais parecido por `similaridadeDescricao` (mesma função de
 não sugere nada (usuário escolhe manualmente). Falha de rede/API da OpenAI nunca
 trava a criação do lançamento — a sugestão é sempre best-effort.
 
+### Saldos (`buscarSaldoAsaas`, `buscarSaldoContaGranatum`)
+
+Oitava função de integração, `saldo` (só relevante pro Asaas — o Granatum já
+devolve o saldo de cada conta dentro de `listar_contas`, sem precisar de tool
+própria). Tool real do Asaas: `recuperar_saldo_da_conta`, resposta `{ balance:
+number }`; fallback REST em `GET /finance/balance`. Importante na ordem de
+`PADROES`/`FUNCOES` em `integracoes.functions.ts`: `saldo` precisa ser checado
+**antes** de `contas`, porque `recuperar_saldo_da_conta` também termina em
+"conta" e seria erroneamente detectado como a tool de listar contas.
+
+`buscarLancamentos` busca os dois saldos em paralelo com o extrato/lançamentos
+(nunca falha a busca inteira se o saldo não estiver mapeado — `.catch(() =>
+null)`) e calcula `saldoGranatumProjetado = saldoGranatum + soma dos itens do
+Asaas ainda sem NENHUM par` (sugestão já é um lançamento real no Granatum, só
+não confirmado — já está refletido no saldo atual, não entra nessa soma).
+
 ## Deploy
 
 Ver `memoria.md` para infraestrutura (servidor, domínio, repositório, portas).

@@ -18,6 +18,7 @@ import {
 import { salvarIntegracaoIA as salvarIntegracaoIAInterno } from "@/lib/ia/openai.server";
 
 const FUNCOES: FuncaoIntegracao[] = [
+  "saldo",
   "extrato",
   "lancamentos",
   "categorias",
@@ -28,6 +29,9 @@ const FUNCOES: FuncaoIntegracao[] = [
 ];
 
 const PADROES: Record<FuncaoIntegracao, RegExp> = {
+  // Antes de "contas": "recuperar_saldo_da_conta" também termina em "conta" e
+  // não pode ser confundida com a tool de listar contas.
+  saldo: /saldo/i,
   extrato: /extrato/i,
   lancamentos: /listar.*lancamento|lancamentos$/i,
   categorias: /categoria/i,
@@ -180,6 +184,7 @@ const salvarMapeamentoSchema = z.object({
     "contas",
     "criar_lancamento",
     "editar_lancamento",
+    "saldo",
   ]),
   tool_name: z.string().min(1),
 });

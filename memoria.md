@@ -120,6 +120,20 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
    JSON da resposta (`response_format: json_schema`, `strict: true`) usa um
    `enum` travado nos ids reais, nunca permite inventar ou criar categoria/
    centro novo. Ver `CLAUDE.md` para os detalhes técnicos.
+8. **Conector visual entre pares ficava desalinhado (2026-09-18)**: a grade das
+   duas colunas esticava (`items-stretch`) pra altura do card mais alto (quase
+   sempre o do Granatum, por causa dos selects), então a linha de ligação
+   ficava centralizada na altura errada. Corrigido alinhando pelo topo
+   (`items-start`) e fixando a linha a uma distância constante do topo, junto
+   com nós/glow pra ficar mais visível.
+9. **Saldos (2026-09-18)**: pedido do William para mostrar, além dos totais do
+   período, o saldo atual no Asaas, no Granatum, e o saldo do Granatum
+   projetado depois de conciliar os pendentes do filtro. Saldo do Asaas via
+   nova função de integração `saldo` (tool real: `recuperar_saldo_da_conta`) —
+   já mapeada manualmente em produção (`tool_mapping`) pra não depender do
+   usuário clicar em "Testar conexão" de novo. Saldo do Granatum vem de graça
+   do `listar_contas` (campo `saldo`, já existia na API, só não estava sendo
+   lido).
 
 ## Estado atual e pendências conhecidas
 

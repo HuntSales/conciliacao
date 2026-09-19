@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { buscarExtratoAsaas } from "@/lib/mcp/asaas.server";
+import { buscarExtratoAsaas, buscarSaldoAsaas } from "@/lib/mcp/asaas.server";
 import {
   listarLancamentosGranatum,
   listarCategoriasGranatum,
@@ -10,6 +10,7 @@ import {
   criarLancamentoGranatum,
   editarLancamentoGranatum,
   buscarLancamentosSimilaresGranatum,
+  buscarSaldoContaGranatum,
 } from "@/lib/mcp/granatum.server";
 import {
   conciliar,
@@ -68,9 +69,11 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const contaId = await contaConfigurada();
 
-    const [asaas, granatum] = await Promise.all([
+    const [asaas, granatum, saldoAsaas, saldoGranatum] = await Promise.all([
       buscarExtratoAsaas(data.dataInicio, data.dataFim),
       listarLancamentosGranatum(contaId, data.dataInicio, data.dataFim),
+      buscarSaldoAsaas().catch(() => null),
+      buscarSaldoContaGranatum(contaId).catch(() => null),
     ]);
 
     const asaasIds = new Set(asaas.map((a) => a.id));
@@ -167,6 +170,15 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         pendentesAsaas: itensAsaas.filter((a) => !a.tipoPar || a.tipoPar === "sugestao").length,
         pendentesGranatum: itensGranatum.filter((g) => !g.tipoPar || g.tipoPar === "sugestao")
           .length,
+        saldoAsaas,
+        saldoGranatum,
+        // Projeta o saldo do Granatum depois que os itens do Asaas ainda sem
+        // nenhum lançamento no Granatum forem criados (sugestão já é um
+        // lançamento real, só não confirmado — já está no saldo atual).
+        saldoGranatumProjetado:
+          saldoGranatum === null
+            ? null
+            : saldoGranatum + itensAsaas.filter((a) => !a.tipoPar).reduce((s, a) => s + a.valor, 0),
       },
     };
   });

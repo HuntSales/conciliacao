@@ -193,6 +193,33 @@ export async function buscarExtratoAsaas(
   return resultado;
 }
 
+/** Saldo atual (em tempo real) da conta Asaas. */
+export async function buscarSaldoAsaas(): Promise<number> {
+  const integracao = await carregarIntegracao();
+  const config = integracao ? configMcp(integracao) : null;
+  const toolSaldo = config ? await carregarToolMapping("saldo") : null;
+
+  if (config && toolSaldo) {
+    const resultado = await chamarTool<{ balance: number }>(config, toolSaldo, {});
+    return resultado.balance;
+  }
+
+  const fallback = await carregarFallback();
+  if (!fallback) {
+    throw new Error(
+      "Nenhuma tool MCP mapeada para 'saldo' e nenhuma credencial de fallback REST configurada para o Asaas.",
+    );
+  }
+  const resposta = await fetch(`${BASE_URL[fallback.ambiente]}/finance/balance`, {
+    headers: { access_token: fallback.token },
+  });
+  if (!resposta.ok) {
+    throw new Error(`Asaas respondeu HTTP ${resposta.status}: ${await resposta.text()}`);
+  }
+  const corpo = (await resposta.json()) as { balance: number };
+  return corpo.balance;
+}
+
 export async function salvarIntegracaoAsaas(dados: {
   nome: string;
   url_mcp: string;

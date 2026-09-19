@@ -174,6 +174,9 @@ function ConciliacaoPage() {
               conciliadosGranatum={dados.resumo.conciliadosGranatum}
               pendentesAsaas={dados.resumo.pendentesAsaas}
               pendentesGranatum={dados.resumo.pendentesGranatum}
+              saldoAsaas={dados.resumo.saldoAsaas}
+              saldoGranatum={dados.resumo.saldoGranatum}
+              saldoGranatumProjetado={dados.resumo.saldoGranatumProjetado}
             />
 
             <div className="flex flex-wrap items-center justify-between gap-3">

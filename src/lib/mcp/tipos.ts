@@ -35,6 +35,7 @@ export type CentroCustoGranatum = {
 export type ContaGranatum = {
   id: string;
   nome: string;
+  saldo: number;
 };
 
 export type FuncaoIntegracao =
@@ -44,6 +45,7 @@ export type FuncaoIntegracao =
   | "centros_custo"
   | "contas"
   | "criar_lancamento"
-  | "editar_lancamento";
+  | "editar_lancamento"
+  | "saldo";
 
 export type Provedor = "asaas" | "granatum";
