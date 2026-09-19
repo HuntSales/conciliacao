@@ -67,6 +67,10 @@ Depois de logado, em **Integrações**:
   tool mapeada no MCP.
 - Selecione a **conta do Granatum** que representa a conta Asaas — todos os
   lançamentos buscados e criados usam essa conta.
+- (Opcional) Cadastre uma **chave da OpenAI** e escolha o modelo — usada para
+  sugerir e pré-preencher categoria e centro de custo (só entre os já
+  cadastrados no Granatum) ao criar um lançamento a partir de um item do Asaas
+  sem par. Sem chave, a sugestão só funciona quando há histórico muito parecido.
 
 ## Deploy
 

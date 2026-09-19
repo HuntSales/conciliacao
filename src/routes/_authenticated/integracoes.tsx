@@ -21,6 +21,7 @@ import {
   salvarFallback,
   listarContasParaConfiguracao,
   salvarContaConfigurada,
+  salvarIntegracaoIA,
 } from "@/lib/integracoes.functions";
 import type { Provedor } from "@/lib/mcp/tipos";
 
@@ -323,6 +324,103 @@ function PainelConta() {
   );
 }
 
+const MODELOS_SUGERIDOS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"];
+
+function PainelIA() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ["integracoes"], queryFn: () => listarIntegracoes() });
+
+  const [token, setToken] = useState("");
+  const [modelo, setModelo] = useState("");
+  const [modeloCustom, setModeloCustom] = useState("");
+
+  useEffect(() => {
+    if (data?.ia?.modelo) {
+      if (MODELOS_SUGERIDOS.includes(data.ia.modelo)) setModelo(data.ia.modelo);
+      else {
+        setModelo("outro");
+        setModeloCustom(data.ia.modelo);
+      }
+    }
+  }, [data]);
+
+  const salvar = useMutation({
+    mutationFn: () =>
+      salvarIntegracaoIA({
+        data: {
+          token: token || undefined,
+          modelo: modelo === "outro" ? modeloCustom : modelo,
+        },
+      }),
+    onSuccess: () => {
+      toast.success("Integração de IA salva");
+      setToken("");
+      queryClient.invalidateQueries({ queryKey: ["integracoes"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Falha ao salvar"),
+  });
+
+  const modeloFinal = modelo === "outro" ? modeloCustom : modelo;
+
+  return (
+    <section className="corp-card space-y-4 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="heading text-xl">Inteligência artificial (OpenAI)</h2>
+        {data?.ia ? <span className="chip border-success/40 text-success">Configurada</span> : null}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Usada para sugerir e pré-preencher categoria e centro de custo ao criar um lançamento no
+        Granatum a partir de um item do Asaas sem par — com base na descrição e no histórico de
+        lançamentos parecidos. Sem esta chave, a sugestão só funciona quando já existe histórico
+        muito parecido (sem IA de verdade).
+      </p>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="lbl">Chave de API da OpenAI</Label>
+          <Input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={data?.ia ? "Deixe em branco para manter a salva" : "sk-..."}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="lbl">Modelo</Label>
+          <Select value={modelo} onValueChange={setModelo}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione o modelo" />
+            </SelectTrigger>
+            <SelectContent>
+              {MODELOS_SUGERIDOS.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+              <SelectItem value="outro">Outro (digitar)</SelectItem>
+            </SelectContent>
+          </Select>
+          {modelo === "outro" ? (
+            <Input
+              className="mt-2"
+              value={modeloCustom}
+              onChange={(e) => setModeloCustom(e.target.value)}
+              placeholder="ex.: gpt-5-mini"
+            />
+          ) : null}
+        </div>
+      </div>
+      <Button
+        variant="corp"
+        size="sm"
+        disabled={!modeloFinal || salvar.isPending}
+        onClick={() => salvar.mutate()}
+      >
+        <Save /> Salvar
+      </Button>
+    </section>
+  );
+}
+
 function IntegracoesPage() {
   return (
     <Shell itens={NAV} contexto="Integrações">
@@ -334,6 +432,7 @@ function IntegracoesPage() {
         <PainelProvedor provedor="asaas" titulo="Asaas" />
         <PainelProvedor provedor="granatum" titulo="Granatum" />
         <PainelConta />
+        <PainelIA />
       </div>
     </Shell>
   );

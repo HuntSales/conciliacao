@@ -9,8 +9,16 @@ import {
   listarCentrosCustoGranatum,
   criarLancamentoGranatum,
   editarLancamentoGranatum,
+  buscarLancamentosSimilaresGranatum,
 } from "@/lib/mcp/granatum.server";
-import { conciliar, type CandidatoAsaas, type CandidatoGranatum } from "@/lib/matching";
+import {
+  conciliar,
+  similaridadeDescricao,
+  type CandidatoAsaas,
+  type CandidatoGranatum,
+} from "@/lib/matching";
+import { folhas } from "@/lib/hierarquia";
+import { sugerirCategorizacao, iaConfigurada, type ExemploHistorico } from "@/lib/ia/openai.server";
 import type { LancamentoAsaas, LancamentoGranatum } from "@/lib/mcp/tipos";
 
 async function contaConfigurada(): Promise<string> {
@@ -240,6 +248,18 @@ export const editarLancamento = createServerFn({ method: "POST" })
       usuario_id: context.userId,
     });
 
+    // Mantém o histórico local (usado para aprender e sugerir categorização
+    // futura) em sincronia com a última edição, se este lançamento já for
+    // parte de um par conciliado.
+    await supabaseAdmin
+      .from("pares_conciliacao")
+      .update({
+        ...(data.descricao !== undefined ? { descricao: data.descricao } : {}),
+        ...(data.categoriaId !== undefined ? { categoria_id: data.categoriaId } : {}),
+        ...(data.centroCustoId !== undefined ? { centro_custo_id: data.centroCustoId } : {}),
+      })
+      .eq("granatum_id", data.id);
+
     return { ok: true };
   });
 
@@ -291,7 +311,115 @@ export const criarLancamentoAPartirDoAsaas = createServerFn({ method: "POST" })
       valor: data.valor,
       tipo: "manual",
       usuario_id: context.userId,
+      descricao: data.descricao,
+      categoria_id: data.categoriaId,
+      centro_custo_id: data.centroCustoId ?? null,
     });
 
     return { ok: true, granatumId };
+  });
+
+const sugerirSchema = z.object({
+  descricao: z.string().min(1),
+  valor: z.number(),
+  tipo: z.enum(["receita", "despesa"]),
+});
+
+export type SugestaoParaLancamento = {
+  categoriaId: string | null;
+  centroCustoId: string | null;
+  origem: "ia" | "historico" | "nenhuma";
+};
+
+export const sugerirParaLancamento = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => sugerirSchema.parse(d))
+  .handler(async ({ data }): Promise<SugestaoParaLancamento> => {
+    const [categorias, centros] = await Promise.all([
+      listarCategoriasGranatum(),
+      listarCentrosCustoGranatum(),
+    ]);
+    const categoriasFolha = folhas(
+      categorias.filter((c) => c.tipo === data.tipo || c.tipo === "mista"),
+    );
+    const centrosFolha = folhas(centros);
+    const idsCategoriaValidos = new Set(categoriasFolha.map((c) => c.id));
+    const idsCentroValidos = new Set(centrosFolha.map((c) => c.id));
+
+    // Histórico local: o que este app já lançou/editou no Granatum.
+    const { data: paresHistorico } = await supabaseAdmin
+      .from("pares_conciliacao")
+      .select("descricao, categoria_id, centro_custo_id")
+      .not("categoria_id", "is", null)
+      .order("criado_em", { ascending: false })
+      .limit(300);
+
+    const historicoLocal: ExemploHistorico[] = (paresHistorico ?? [])
+      .filter(
+        (p): p is { descricao: string; categoria_id: string; centro_custo_id: string | null } =>
+          Boolean(p.descricao && p.categoria_id),
+      )
+      .map((p) => ({
+        descricao: p.descricao,
+        categoriaId: p.categoria_id,
+        centroCustoId: p.centro_custo_id,
+      }));
+
+    // Histórico "ao vivo" no próprio Granatum (busca textual pela API deles),
+    // best-effort — nunca trava a sugestão se a conta não estiver configurada
+    // ou a busca falhar.
+    let historicoRemoto: ExemploHistorico[] = [];
+    try {
+      const contaId = await contaConfigurada();
+      const encontrados = await buscarLancamentosSimilaresGranatum(contaId, data.descricao, 20);
+      historicoRemoto = encontrados
+        .filter((l) => l.categoriaId)
+        .map((l) => ({
+          descricao: l.descricao,
+          categoriaId: l.categoriaId as string,
+          centroCustoId: l.centroCustoId,
+        }));
+    } catch {
+      /* conta não configurada ainda — segue só com o histórico local */
+    }
+
+    const historicoCombinado = [...historicoLocal, ...historicoRemoto]
+      .filter((h) => idsCategoriaValidos.has(h.categoriaId))
+      .map((h) => ({ ...h, score: similaridadeDescricao(h.descricao, data.descricao) }))
+      .sort((a, b) => b.score - a.score);
+
+    if (await iaConfigurada()) {
+      const sugestao = await sugerirCategorizacao({
+        descricao: data.descricao,
+        valor: data.valor,
+        tipo: data.tipo,
+        categorias: categoriasFolha.map((c) => ({ id: c.id, caminho: c.caminho })),
+        centros: centrosFolha.map((c) => ({ id: c.id, caminho: c.caminho })),
+        historico: historicoCombinado,
+      });
+      if (sugestao) {
+        return {
+          categoriaId: sugestao.categoriaId,
+          centroCustoId:
+            sugestao.centroCustoId && idsCentroValidos.has(sugestao.centroCustoId)
+              ? sugestao.centroCustoId
+              : null,
+          origem: "ia",
+        };
+      }
+    }
+
+    const melhor = historicoCombinado[0];
+    if (melhor && melhor.score > 0.15) {
+      return {
+        categoriaId: melhor.categoriaId,
+        centroCustoId:
+          melhor.centroCustoId && idsCentroValidos.has(melhor.centroCustoId)
+            ? melhor.centroCustoId
+            : null,
+        origem: "historico",
+      };
+    }
+
+    return { categoriaId: null, centroCustoId: null, origem: "nenhuma" };
   });

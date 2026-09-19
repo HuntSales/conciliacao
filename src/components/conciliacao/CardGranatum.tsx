@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import { editarLancamento, type ItemGranatum } from "@/lib/conciliacao.functions";
-import { folhas } from "./cadastros";
+import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 
 function badge(tipoPar: ItemGranatum["tipoPar"]) {

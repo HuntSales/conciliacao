@@ -15,6 +15,7 @@ import {
   salvarFallbackGranatum,
   listarContasGranatum,
 } from "@/lib/mcp/granatum.server";
+import { salvarIntegracaoIA as salvarIntegracaoIAInterno } from "@/lib/ia/openai.server";
 
 const FUNCOES: FuncaoIntegracao[] = [
   "extrato",
@@ -85,6 +86,11 @@ export const listarIntegracoes = createServerFn({ method: "GET" })
       .order("atualizado_em", { ascending: false })
       .limit(1)
       .maybeSingle();
+    const { data: ia } = await supabaseAdmin
+      .from("integracoes_ia")
+      .select("token_cifrado, modelo")
+      .eq("provedor", "openai")
+      .maybeSingle();
 
     return {
       integracoes: (integracoes ?? []).map((i) => ({
@@ -99,6 +105,12 @@ export const listarIntegracoes = createServerFn({ method: "GET" })
       })),
       mapeamentos: mapeamentos ?? [],
       conta: conta ?? null,
+      ia: ia
+        ? {
+            modelo: ia.modelo,
+            token_mascarado: mascarar(ia.token_cifrado ? "****tokensalvo" : null),
+          }
+        : null,
     };
   });
 
@@ -206,5 +218,18 @@ export const salvarContaConfigurada = createServerFn({ method: "POST" })
       nome: data.nome,
       atualizado_em: new Date().toISOString(),
     });
+    return { ok: true };
+  });
+
+const salvarIntegracaoIASchema = z.object({
+  token: z.string().optional(),
+  modelo: z.string().min(1),
+});
+
+export const salvarIntegracaoIA = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => salvarIntegracaoIASchema.parse(d))
+  .handler(async ({ data }) => {
+    await salvarIntegracaoIAInterno(data);
     return { ok: true };
   });

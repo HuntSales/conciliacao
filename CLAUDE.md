@@ -108,6 +108,24 @@ gravados, roda a engine só no que sobra, persiste automáticos na hora, devolve
 sugestões sem persistir (ficam só na resposta — "rejeitar" no frontend é só estado
 local, não precisa de chamada ao servidor).
 
+### Sugestão de categoria/centro por IA (`src/lib/ia/openai.server.ts`)
+
+Ao abrir "Criar no Granatum" para um item do Asaas sem par, `sugerirParaLancamento`
+(`conciliacao.functions.ts`) monta um histórico combinado — local
+(`pares_conciliacao.categoria_id`/`centro_custo_id`/`descricao`, preenchido a cada
+criação/edição feita pelo app) + remoto (busca textual ao vivo no Granatum via
+`buscarLancamentosSimilaresGranatum`, parâmetro `busca` da própria tool
+`listar_lancamentos`) — e manda pra OpenAI (Chat Completions, `response_format:
+json_schema` com `strict: true`) junto com a lista de categorias/centros **folha**
+já cadastrados. O schema JSON restringe a resposta a um `enum` só com os ids reais
+recebidos — o modelo nunca pode inventar/propor uma categoria ou centro que não
+exista, e o sistema nunca cria categoria/centro novo (só lançamento). Sem chave
+OpenAI configurada (`integracoes_ia`), cai num fallback só-heurístico: pega o
+histórico mais parecido por `similaridadeDescricao` (mesma função de
+`matching.ts`) se a similaridade passar de um limiar; sem histórico parecido,
+não sugere nada (usuário escolhe manualmente). Falha de rede/API da OpenAI nunca
+trava a criação do lançamento — a sugestão é sempre best-effort.
+
 ## Deploy
 
 Ver `memoria.md` para infraestrutura (servidor, domínio, repositório, portas).

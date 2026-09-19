@@ -100,17 +100,26 @@ run` que falha ao dar bind na porta pode deixar um container parado em estado
    repositório (deploy key, push), já que este projeto usa `HuntSales`, diferente
    do padrão `corpsolutions` do Multi MCPs.
 6. **Erro real em produção (2026-09-18): `HTTP 422 — "Você não pode adicionar
-   lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/centro
+lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/centro
    de custo era um cascata de 2 níveis fixos (Categoria + Subcategoria), mas a
    árvore real do Granatum tem até 4 níveis de profundidade (ex.: Despesas
    operacionais → Despesas Comerciais → Marketing e publicidade → Tráfego pago) —
    dava pra escolher um nó que ainda tinha filhos, e a API do Granatum só aceita
    folha (sem filhos) em `categoria_id`/`centro_custo_lucro_id`. Corrigido trocando
    os dois seletores (edição inline e criação a partir do Asaas) por um único
-   select por hierarquia, listando **só as folhas** (`folhas()` em
-   `components/conciliacao/cadastros.ts`) com o caminho completo (`caminho`,
-   ex. "Despesas operacionais > Despesas Comerciais > Marketing e publicidade >
-   Tráfego pago") como rótulo — funciona pra qualquer profundidade de árvore.
+   select por hierarquia, listando **só as folhas** (`folhas()`, movida pra
+   `src/lib/hierarquia.ts` para poder ser usada tanto pelo frontend quanto pelas
+   server functions) com o caminho completo (`caminho`, ex. "Despesas
+   operacionais > Despesas Comerciais > Marketing e publicidade > Tráfego
+   pago") como rótulo — funciona pra qualquer profundidade de árvore.
+7. **Sugestão de categoria/centro por IA (2026-09-18)**: pedido do William para
+   pré-preencher categoria/centro ao criar lançamento a partir de um item do
+   Asaas sem par, usando OpenAI + histórico. Integração OpenAI configurável em
+   Integrações (chave + modelo). Restrição importante seguida à risca: a IA só
+   pode escolher entre categorias/centros **já cadastrados e folha** — o schema
+   JSON da resposta (`response_format: json_schema`, `strict: true`) usa um
+   `enum` travado nos ids reais, nunca permite inventar ou criar categoria/
+   centro novo. Ver `CLAUDE.md` para os detalhes técnicos.
 
 ## Estado atual e pendências conhecidas
 
@@ -121,3 +130,6 @@ run` que falha ao dar bind na porta pode deixar um container parado em estado
   verdade — os dois MCPs cobriram 100% das funções necessárias no teste real.
 - Hardening de segurança do servidor: deliberadamente adiado, mesma decisão do
   Multi MCPs.
+- Sugestão por IA ainda não foi testada com uma chave OpenAI real — só
+  typecheck/build. Vale configurar a chave em Integrações e testar na prática
+  antes de confiar no pré-preenchimento em produção.

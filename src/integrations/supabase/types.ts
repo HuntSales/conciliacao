@@ -81,6 +81,30 @@ export type Database = {
         };
         Relationships: [];
       };
+      integracoes_ia: {
+        Row: {
+          atualizado_em: string;
+          id: string;
+          modelo: string | null;
+          provedor: string;
+          token_cifrado: string | null;
+        };
+        Insert: {
+          atualizado_em?: string;
+          id?: string;
+          modelo?: string | null;
+          provedor?: string;
+          token_cifrado?: string | null;
+        };
+        Update: {
+          atualizado_em?: string;
+          id?: string;
+          modelo?: string | null;
+          provedor?: string;
+          token_cifrado?: string | null;
+        };
+        Relationships: [];
+      };
       integracoes_mcp: {
         Row: {
           atualizado_em: string;
@@ -153,8 +177,11 @@ export type Database = {
       pares_conciliacao: {
         Row: {
           asaas_id: string;
+          categoria_id: string | null;
+          centro_custo_id: string | null;
           criado_em: string;
           data: string;
+          descricao: string | null;
           granatum_id: string;
           id: string;
           tipo: string;
@@ -163,8 +190,11 @@ export type Database = {
         };
         Insert: {
           asaas_id: string;
+          categoria_id?: string | null;
+          centro_custo_id?: string | null;
           criado_em?: string;
           data: string;
+          descricao?: string | null;
           granatum_id: string;
           id?: string;
           tipo: string;
@@ -173,8 +203,11 @@ export type Database = {
         };
         Update: {
           asaas_id?: string;
+          categoria_id?: string | null;
+          centro_custo_id?: string | null;
           criado_em?: string;
           data?: string;
+          descricao?: string | null;
           granatum_id?: string;
           id?: string;
           tipo?: string;

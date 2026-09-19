@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,8 +20,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
-import { criarLancamentoAPartirDoAsaas } from "@/lib/conciliacao.functions";
-import { folhas } from "./cadastros";
+import { criarLancamentoAPartirDoAsaas, sugerirParaLancamento } from "@/lib/conciliacao.functions";
+import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import type { ItemAsaas } from "@/lib/conciliacao.functions";
 
@@ -50,6 +52,25 @@ export function FormCriarLancamento({
     [categorias, item],
   );
   const centrosFolha = useMemo(() => folhas(centros), [centros]);
+
+  const sugestao = useQuery({
+    queryKey: ["sugestao-categorizacao", item?.id],
+    queryFn: () =>
+      sugerirParaLancamento({
+        data: { descricao: item!.descricao, valor: item!.valor, tipo: item!.tipo },
+      }),
+    enabled: Boolean(item) && aberto,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!sugestao.data) return;
+    if (!categoriaId && sugestao.data.categoriaId) setCategoriaId(sugestao.data.categoriaId);
+    if (!centroCustoId && sugestao.data.centroCustoId)
+      setCentroCustoId(sugestao.data.centroCustoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sugestao.data]);
 
   if (!item) return null;
 
@@ -104,6 +125,18 @@ export function FormCriarLancamento({
             <Label className="lbl">Descrição</Label>
             <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           </div>
+          {sugestao.isFetching ? (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5" /> Buscando sugestão de categoria e centro de custo…
+            </p>
+          ) : sugestao.data && sugestao.data.origem !== "nenhuma" ? (
+            <p className="flex items-center gap-1.5 text-xs text-gold">
+              <Sparkles className="h-3.5 w-3.5" />
+              {sugestao.data.origem === "ia"
+                ? "Sugerido por IA — confira antes de salvar."
+                : "Sugerido com base em lançamento parecido — confira antes de salvar."}
+            </p>
+          ) : null}
           <div className="grid gap-3">
             <div className="space-y-1">
               <Label className="lbl">Categoria</Label>

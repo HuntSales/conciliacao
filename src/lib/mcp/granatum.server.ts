@@ -297,6 +297,32 @@ export async function listarLancamentosGranatum(
   return resultado;
 }
 
+/**
+ * Busca textual (server-side, via parâmetro `busca` da própria API do
+ * Granatum) por lançamentos com descrição parecida, já baixados — usada para
+ * aprender categoria/centro de custo de lançamentos históricos semelhantes.
+ * Só funciona pelo caminho MCP (o fallback REST não garante busca livre);
+ * falha em silêncio (retorna []) para nunca travar uma sugestão de IA.
+ */
+export async function buscarLancamentosSimilaresGranatum(
+  contaId: string,
+  texto: string,
+  limit = 20,
+): Promise<LancamentoGranatum[]> {
+  const via = await acesso("lancamentos");
+  if (!via || !texto.trim()) return [];
+  try {
+    const linhas = await chamarTool<LancamentoBruto[]>(via.mcp, via.tool, {
+      conta_id: Number(contaId),
+      busca: texto,
+      limit,
+    });
+    return linhas.map(normalizarLancamento).filter((l): l is LancamentoGranatum => l !== null);
+  } catch {
+    return [];
+  }
+}
+
 export async function buscarLancamentoPorIdentificadorExterno(
   contaId: string,
   identificadorExterno: string,

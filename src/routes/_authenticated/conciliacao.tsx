@@ -295,6 +295,7 @@ function ConciliacaoPage() {
       </div>
 
       <FormCriarLancamento
+        key={itemParaCriar?.id ?? "vazio"}
         item={itemParaCriar}
         categorias={cadastros.data?.categorias ?? []}
         centros={cadastros.data?.centrosCusto ?? []}
