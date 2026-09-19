@@ -108,6 +108,20 @@ gravados, roda a engine só no que sobra, persiste automáticos na hora, devolve
 sugestões sem persistir (ficam só na resposta — "rejeitar" no frontend é só estado
 local, não precisa de chamada ao servidor).
 
+### Conciliação manual (`FormConciliarManual.tsx`)
+
+Selecionar um item de cada lado e clicar "Conciliar selecionados" não liga na
+hora — abre um diálogo com os dois lados lado a lado (avisa se data/valor não
+baterem exatamente, já que é uma ligação manual), descrição e
+categoria/centro do lançamento do Granatum (pré-preenchidos com o que ele já
+tem; só dispara sugestão de IA/histórico se ainda estiver sem categoria). Um
+único botão "Salvar e conciliar" primeiro aplica a edição no Granatum (só se
+algo mudou) e depois grava o par — a mesma tela cobre tanto reclassificar
+quanto ligar. O mesmo padrão vale pra "Confirmar" uma sugestão da engine: já
+manda a categoria/centro/descrição atuais do lançamento pro `pares_conciliacao`,
+pra alimentar o histórico de sugestão (ver seção de IA abaixo) mesmo quando o
+usuário só confirma sem editar nada.
+
 ### Sugestão de categoria/centro por IA (`src/lib/ia/openai.server.ts`)
 
 Ao abrir "Criar no Granatum" para um item do Asaas sem par, `sugerirParaLancamento`

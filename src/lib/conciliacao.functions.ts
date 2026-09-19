@@ -189,6 +189,9 @@ const confirmarParSchema = z.object({
   data: z.string(),
   valor: z.number(),
   tipo: z.enum(["automatico", "manual", "sugestao"]).default("manual"),
+  descricao: z.string().optional(),
+  categoriaId: z.string().optional(),
+  centroCustoId: z.string().nullable().optional(),
 });
 
 export const confirmarPar = createServerFn({ method: "POST" })
@@ -202,6 +205,9 @@ export const confirmarPar = createServerFn({ method: "POST" })
         data: data.data,
         valor: data.valor,
         tipo: data.tipo,
+        ...(data.descricao !== undefined ? { descricao: data.descricao } : {}),
+        ...(data.categoriaId !== undefined ? { categoria_id: data.categoriaId } : {}),
+        ...(data.centroCustoId !== undefined ? { centro_custo_id: data.centroCustoId } : {}),
         usuario_id: context.userId,
       },
       { onConflict: "asaas_id" },

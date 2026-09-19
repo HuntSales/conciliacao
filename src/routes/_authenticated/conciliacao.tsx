@@ -11,6 +11,7 @@ import { ResumoTopo } from "@/components/conciliacao/ResumoTopo";
 import { CardAsaas } from "@/components/conciliacao/CardAsaas";
 import { CardGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormCriarLancamento } from "@/components/conciliacao/FormCriarLancamento";
+import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
 import {
   buscarLancamentos,
   confirmarPar,
@@ -66,6 +67,7 @@ function ConciliacaoPage() {
   const [selecaoAsaas, setSelecaoAsaas] = useState<string | null>(null);
   const [selecaoGranatum, setSelecaoGranatum] = useState<string | null>(null);
   const [itemParaCriar, setItemParaCriar] = useState<ItemAsaas | null>(null);
+  const [conciliandoManual, setConciliandoManual] = useState(false);
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
 
   const cadastros = useQuery({
@@ -122,28 +124,13 @@ function ConciliacaoPage() {
 
   const podeConciliarManual = selecaoAsaas && selecaoGranatum;
 
-  const conciliarManual = () => {
-    if (!selecaoAsaas || !selecaoGranatum || !dados) return;
-    const g = dados.granatum.find((x) => x.id === selecaoGranatum);
-    if (!g) return;
-    confirmar.mutate(
-      {
-        data: {
-          asaasId: selecaoAsaas,
-          granatumId: selecaoGranatum,
-          data: g.data,
-          valor: g.valor,
-          tipo: "manual",
-        },
-      },
-      {
-        onSuccess: () => {
-          setSelecaoAsaas(null);
-          setSelecaoGranatum(null);
-        },
-      },
-    );
-  };
+  const parParaConciliar =
+    dados && selecaoAsaas && selecaoGranatum
+      ? {
+          asaas: dados.asaas.find((a) => a.id === selecaoAsaas) ?? null,
+          granatum: dados.granatum.find((g) => g.id === selecaoGranatum) ?? null,
+        }
+      : null;
 
   return (
     <Shell itens={NAV} contexto="Conciliação">
@@ -200,7 +187,7 @@ function ConciliacaoPage() {
                 ))}
               </div>
               {podeConciliarManual ? (
-                <Button variant="corp" size="sm" onClick={conciliarManual}>
+                <Button variant="corp" size="sm" onClick={() => setConciliandoManual(true)}>
                   Conciliar selecionados
                 </Button>
               ) : null}
@@ -277,6 +264,9 @@ function ConciliacaoPage() {
                                       data: linha.granatum!.data,
                                       valor: linha.granatum!.valor,
                                       tipo: "manual",
+                                      descricao: linha.granatum!.descricao,
+                                      categoriaId: linha.granatum!.categoriaId ?? undefined,
+                                      centroCustoId: linha.granatum!.centroCustoId,
                                     },
                                   })
                               : undefined
@@ -315,6 +305,22 @@ function ConciliacaoPage() {
         onFechar={() => setItemParaCriar(null)}
         onCriado={() => {
           setItemParaCriar(null);
+          invalidarBusca();
+        }}
+      />
+
+      <FormConciliarManual
+        key={`${parParaConciliar?.asaas?.id ?? "x"}-${parParaConciliar?.granatum?.id ?? "x"}`}
+        asaas={parParaConciliar?.asaas ?? null}
+        granatum={parParaConciliar?.granatum ?? null}
+        categorias={cadastros.data?.categorias ?? []}
+        centros={cadastros.data?.centrosCusto ?? []}
+        aberto={conciliandoManual}
+        onFechar={() => setConciliandoManual(false)}
+        onConciliado={() => {
+          setConciliandoManual(false);
+          setSelecaoAsaas(null);
+          setSelecaoGranatum(null);
           invalidarBusca();
         }}
       />

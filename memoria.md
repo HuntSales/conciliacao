@@ -134,6 +134,13 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
    usuário clicar em "Testar conexão" de novo. Saldo do Granatum vem de graça
    do `listar_contas` (campo `saldo`, já existia na API, só não estava sendo
    lido).
+10. **Conciliação manual virou um diálogo, não um clique direto (2026-09-18)**:
+    pedido do William para poder revisar/preencher categoria e centro de custo
+    no momento de ligar manualmente um Asaas sem par a um Granatum sem par
+    (antes o botão "Conciliar selecionados" ligava na hora, sem chance de
+    corrigir a categorização). Agora abre `FormConciliarManual`, que também
+    dispara sugestão por IA/histórico quando o lançamento do Granatum ainda
+    está sem categoria.
 
 ## Estado atual e pendências conhecidas
 
