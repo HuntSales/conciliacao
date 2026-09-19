@@ -141,6 +141,14 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     corrigir a categorização). Agora abre `FormConciliarManual`, que também
     dispara sugestão por IA/histórico quando o lançamento do Granatum ainda
     está sem categoria.
+11. **Fluxo de conciliação manual ainda não era descobrível (2026-09-18)**:
+    feedback direto do William — marcar checkbox em cada lado e procurar o
+    botão "Conciliar selecionados" na barra de filtros não era óbvio. Trocado
+    por um botão "Ligar" direto em cada card sem par: clicar entra em "modo de
+    vínculo" (faixa no topo avisando o que fazer), todo card sem par do outro
+    lado vira alvo destacado com botão "Ligar aqui", clicar nele abre o mesmo
+    `FormConciliarManual` de antes. Ver `CLAUDE.md` (`modoVinculo`) pros
+    detalhes técnicos.
 
 ## Estado atual e pendências conhecidas
 

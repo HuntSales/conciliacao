@@ -1,6 +1,5 @@
-import { Plus } from "lucide-react";
+import { Link2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import type { ItemAsaas } from "@/lib/conciliacao.functions";
 
@@ -14,51 +13,65 @@ function badge(tipoPar: ItemAsaas["tipoPar"]) {
   return <span className="chip">Sem par</span>;
 }
 
+export type ModoVinculo = "nenhum" | "origem" | "alvo";
+
 export function CardAsaas({
   item,
-  selecionavel,
-  selecionado,
-  onSelecionar,
+  modoVinculo,
   onCriarNoGranatum,
+  onIniciarVinculo,
+  onCancelarVinculo,
+  onLigarAqui,
 }: {
   item: ItemAsaas;
-  selecionavel: boolean;
-  selecionado: boolean;
-  onSelecionar: (marcado: boolean) => void;
+  modoVinculo: ModoVinculo;
   onCriarNoGranatum: () => void;
+  onIniciarVinculo: () => void;
+  onCancelarVinculo: () => void;
+  onLigarAqui: () => void;
 }) {
   return (
     <div
       className={`corp-card corp-card-hover p-4 ${
         item.tipoPar === "sugestao" ? "border-dashed border-gold/50" : ""
+      } ${modoVinculo === "origem" ? "border-primary shadow-glow" : ""} ${
+        modoVinculo === "alvo" ? "border-gold" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {selecionavel ? (
-            <Checkbox
-              checked={selecionado}
-              onCheckedChange={(v) => onSelecionar(Boolean(v))}
-              className="mt-1"
-            />
-          ) : null}
-          <div>
-            <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
-            <p className="mt-0.5 text-sm text-body">{item.descricao}</p>
-          </div>
+        <div>
+          <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
+          <p className="mt-0.5 text-sm text-body">{item.descricao}</p>
         </div>
         {badge(item.tipoPar)}
       </div>
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 flex items-center justify-between gap-2">
         <p
           className={`heading text-lg ${item.tipo === "despesa" ? "text-destructive" : "text-success"}`}
         >
           {formatarMoeda(item.valor)}
         </p>
         {!item.tipoPar ? (
-          <Button variant="corpOutline" size="sm" onClick={onCriarNoGranatum}>
-            <Plus /> Criar no Granatum
-          </Button>
+          <div className="flex gap-2">
+            {modoVinculo === "alvo" ? (
+              <Button variant="corp" size="sm" onClick={onLigarAqui}>
+                <Link2 /> Ligar aqui
+              </Button>
+            ) : modoVinculo === "origem" ? (
+              <Button variant="ghostCorp" size="sm" onClick={onCancelarVinculo}>
+                <X /> Cancelar
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
+                  <Link2 /> Ligar
+                </Button>
+                <Button variant="corpOutline" size="sm" onClick={onCriarNoGranatum}>
+                  <Plus /> Criar no Granatum
+                </Button>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
     </div>

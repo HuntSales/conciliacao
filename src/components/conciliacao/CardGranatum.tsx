@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import { Check, Undo2, X } from "lucide-react";
+import { Check, Link2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +15,7 @@ import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import { editarLancamento, type ItemGranatum } from "@/lib/conciliacao.functions";
 import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
+import type { ModoVinculo } from "./CardAsaas";
 
 function badge(tipoPar: ItemGranatum["tipoPar"]) {
   if (tipoPar === "automatico" || tipoPar === "manual") {
@@ -31,23 +31,25 @@ export function CardGranatum({
   item,
   categorias,
   centros,
-  selecionavel,
-  selecionado,
-  onSelecionar,
+  modoVinculo,
   onDesfazer,
   onConfirmarSugestao,
   onRejeitarSugestao,
+  onIniciarVinculo,
+  onCancelarVinculo,
+  onLigarAqui,
   onSalvo,
 }: {
   item: ItemGranatum;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
-  selecionavel: boolean;
-  selecionado: boolean;
-  onSelecionar: (marcado: boolean) => void;
+  modoVinculo: ModoVinculo;
   onDesfazer?: (() => void) | undefined;
   onConfirmarSugestao?: (() => void) | undefined;
   onRejeitarSugestao?: (() => void) | undefined;
+  onIniciarVinculo: () => void;
+  onCancelarVinculo: () => void;
+  onLigarAqui: () => void;
   onSalvo: () => void;
 }) {
   // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
@@ -92,19 +94,12 @@ export function CardGranatum({
     <div
       className={`corp-card corp-card-hover space-y-3 p-4 ${
         item.tipoPar === "sugestao" ? "border-dashed border-gold/50" : ""
+      } ${modoVinculo === "origem" ? "border-primary shadow-glow" : ""} ${
+        modoVinculo === "alvo" ? "border-gold" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {selecionavel ? (
-            <Checkbox
-              checked={selecionado}
-              onCheckedChange={(v) => onSelecionar(Boolean(v))}
-              className="mt-1"
-            />
-          ) : null}
-          <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
-        </div>
+        <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
         {badge(item.tipoPar)}
       </div>
 
@@ -143,13 +138,13 @@ export function CardGranatum({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p
           className={`heading text-lg ${item.tipo === "despesa" ? "text-destructive" : "text-success"}`}
         >
           {formatarMoeda(item.valor)}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           {item.tipoPar === "sugestao" ? (
             <>
               <Button variant="corp" size="sm" onClick={onConfirmarSugestao}>
@@ -164,6 +159,21 @@ export function CardGranatum({
             <Button variant="ghostCorp" size="sm" onClick={onDesfazer}>
               <Undo2 /> Desfazer
             </Button>
+          ) : null}
+          {!item.tipoPar ? (
+            modoVinculo === "alvo" ? (
+              <Button variant="corp" size="sm" onClick={onLigarAqui}>
+                <Link2 /> Ligar aqui
+              </Button>
+            ) : modoVinculo === "origem" ? (
+              <Button variant="ghostCorp" size="sm" onClick={onCancelarVinculo}>
+                <X /> Cancelar
+              </Button>
+            ) : (
+              <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
+                <Link2 /> Ligar
+              </Button>
+            )
           ) : null}
           <Button variant="corpOutline" size="sm" disabled={salvando} onClick={salvar}>
             {salvando ? "Salvando" : "Salvar"}

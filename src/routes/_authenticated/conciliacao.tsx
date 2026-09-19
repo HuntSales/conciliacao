@@ -1,14 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/corp/EmptyState";
 import { FiltroPeriodo, type Periodo } from "@/components/conciliacao/FiltroPeriodo";
 import { ResumoTopo } from "@/components/conciliacao/ResumoTopo";
-import { CardAsaas } from "@/components/conciliacao/CardAsaas";
+import { CardAsaas, type ModoVinculo } from "@/components/conciliacao/CardAsaas";
 import { CardGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormCriarLancamento } from "@/components/conciliacao/FormCriarLancamento";
 import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
@@ -37,6 +37,9 @@ type FiltroRapido = "todos" | "conciliados" | "pendentes_asaas" | "pendentes_gra
 
 type Linha = { asaas: ItemAsaas | null; granatum: ItemGranatum | null };
 
+type OrigemVinculo =
+  { lado: "asaas"; item: ItemAsaas } | { lado: "granatum"; item: ItemGranatum } | null;
+
 function montarLinhas(asaas: ItemAsaas[], granatum: ItemGranatum[]): Linha[] {
   const usados = new Set<string>();
   const linhas: Linha[] = [];
@@ -64,10 +67,12 @@ function ConciliacaoPage() {
     toleranciaDias: 0,
   });
   const [filtro, setFiltro] = useState<FiltroRapido>("todos");
-  const [selecaoAsaas, setSelecaoAsaas] = useState<string | null>(null);
-  const [selecaoGranatum, setSelecaoGranatum] = useState<string | null>(null);
   const [itemParaCriar, setItemParaCriar] = useState<ItemAsaas | null>(null);
-  const [conciliandoManual, setConciliandoManual] = useState(false);
+  const [origemVinculo, setOrigemVinculo] = useState<OrigemVinculo>(null);
+  const [parEmDialogo, setParEmDialogo] = useState<{
+    asaas: ItemAsaas;
+    granatum: ItemGranatum;
+  } | null>(null);
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
 
   const cadastros = useQuery({
@@ -122,15 +127,33 @@ function ConciliacaoPage() {
     return Boolean(l.granatum && !l.asaas);
   });
 
-  const podeConciliarManual = selecaoAsaas && selecaoGranatum;
+  const cancelarVinculo = () => setOrigemVinculo(null);
 
-  const parParaConciliar =
-    dados && selecaoAsaas && selecaoGranatum
-      ? {
-          asaas: dados.asaas.find((a) => a.id === selecaoAsaas) ?? null,
-          granatum: dados.granatum.find((g) => g.id === selecaoGranatum) ?? null,
-        }
-      : null;
+  const modoParaAsaas = (item: ItemAsaas): ModoVinculo => {
+    if (item.tipoPar) return "nenhum";
+    if (origemVinculo?.lado === "asaas" && origemVinculo.item.id === item.id) return "origem";
+    if (origemVinculo?.lado === "granatum") return "alvo";
+    return "nenhum";
+  };
+
+  const modoParaGranatum = (item: ItemGranatum): ModoVinculo => {
+    if (item.tipoPar) return "nenhum";
+    if (origemVinculo?.lado === "granatum" && origemVinculo.item.id === item.id) return "origem";
+    if (origemVinculo?.lado === "asaas") return "alvo";
+    return "nenhum";
+  };
+
+  const ligarComGranatumAlvo = (granatumItem: ItemGranatum) => {
+    if (!origemVinculo || origemVinculo.lado !== "asaas") return;
+    setParEmDialogo({ asaas: origemVinculo.item, granatum: granatumItem });
+    setOrigemVinculo(null);
+  };
+
+  const ligarComAsaasAlvo = (asaasItem: ItemAsaas) => {
+    if (!origemVinculo || origemVinculo.lado !== "granatum") return;
+    setParEmDialogo({ asaas: asaasItem, granatum: origemVinculo.item });
+    setOrigemVinculo(null);
+  };
 
   return (
     <Shell itens={NAV} contexto="Conciliação">
@@ -166,32 +189,42 @@ function ConciliacaoPage() {
               saldoGranatumProjetado={dados.resumo.saldoGranatumProjetado}
             />
 
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex gap-2">
-                {(
-                  [
-                    ["todos", "Todos"],
-                    ["conciliados", "Conciliados"],
-                    ["pendentes_asaas", "Pendentes Asaas"],
-                    ["pendentes_granatum", "Pendentes Granatum"],
-                  ] as const
-                ).map(([valor, rotulo]) => (
-                  <Button
-                    key={valor}
-                    variant={filtro === valor ? "corp" : "corpOutline"}
-                    size="sm"
-                    onClick={() => setFiltro(valor)}
-                  >
-                    {rotulo}
-                  </Button>
-                ))}
-              </div>
-              {podeConciliarManual ? (
-                <Button variant="corp" size="sm" onClick={() => setConciliandoManual(true)}>
-                  Conciliar selecionados
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["todos", "Todos"],
+                  ["conciliados", "Conciliados"],
+                  ["pendentes_asaas", "Pendentes Asaas"],
+                  ["pendentes_granatum", "Pendentes Granatum"],
+                ] as const
+              ).map(([valor, rotulo]) => (
+                <Button
+                  key={valor}
+                  variant={filtro === valor ? "corp" : "corpOutline"}
+                  size="sm"
+                  onClick={() => setFiltro(valor)}
+                >
+                  {rotulo}
                 </Button>
-              ) : null}
+              ))}
             </div>
+
+            {origemVinculo ? (
+              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+                <p className="text-sm text-body">
+                  Escolha o lançamento do{" "}
+                  <strong className="text-foreground">
+                    {origemVinculo.lado === "asaas" ? "Granatum" : "Asaas"}
+                  </strong>{" "}
+                  pra ligar a{" "}
+                  <strong className="text-foreground">"{origemVinculo.item.descricao}"</strong> —
+                  clique em "Ligar aqui" no card desejado, do outro lado.
+                </p>
+                <Button variant="ghostCorp" size="sm" onClick={cancelarVinculo}>
+                  <X /> Cancelar
+                </Button>
+              </div>
+            ) : null}
 
             {linhasFiltradas.length === 0 ? (
               <EmptyState
@@ -210,10 +243,13 @@ function ConciliacaoPage() {
                       {linha.asaas ? (
                         <CardAsaas
                           item={linha.asaas}
-                          selecionavel={!linha.asaas.tipoPar}
-                          selecionado={selecaoAsaas === linha.asaas.id}
-                          onSelecionar={(m) => setSelecaoAsaas(m ? linha.asaas!.id : null)}
+                          modoVinculo={modoParaAsaas(linha.asaas)}
                           onCriarNoGranatum={() => setItemParaCriar(linha.asaas)}
+                          onIniciarVinculo={() =>
+                            setOrigemVinculo({ lado: "asaas", item: linha.asaas! })
+                          }
+                          onCancelarVinculo={cancelarVinculo}
+                          onLigarAqui={() => ligarComAsaasAlvo(linha.asaas!)}
                         />
                       ) : (
                         <div className="h-full rounded-none border border-dashed border-border/50" />
@@ -245,10 +281,13 @@ function ConciliacaoPage() {
                           item={linha.granatum}
                           categorias={cadastros.data?.categorias ?? []}
                           centros={cadastros.data?.centrosCusto ?? []}
-                          selecionavel={!linha.granatum.tipoPar}
-                          selecionado={selecaoGranatum === linha.granatum.id}
-                          onSelecionar={(m) => setSelecaoGranatum(m ? linha.granatum!.id : null)}
+                          modoVinculo={modoParaGranatum(linha.granatum)}
                           onSalvo={invalidarBusca}
+                          onIniciarVinculo={() =>
+                            setOrigemVinculo({ lado: "granatum", item: linha.granatum! })
+                          }
+                          onCancelarVinculo={cancelarVinculo}
+                          onLigarAqui={() => ligarComGranatumAlvo(linha.granatum!)}
                           onDesfazer={
                             linha.asaas
                               ? () => desfazer.mutate({ data: { asaasId: linha.asaas!.id } })
@@ -310,17 +349,15 @@ function ConciliacaoPage() {
       />
 
       <FormConciliarManual
-        key={`${parParaConciliar?.asaas?.id ?? "x"}-${parParaConciliar?.granatum?.id ?? "x"}`}
-        asaas={parParaConciliar?.asaas ?? null}
-        granatum={parParaConciliar?.granatum ?? null}
+        key={`${parEmDialogo?.asaas.id ?? "x"}-${parEmDialogo?.granatum.id ?? "x"}`}
+        asaas={parEmDialogo?.asaas ?? null}
+        granatum={parEmDialogo?.granatum ?? null}
         categorias={cadastros.data?.categorias ?? []}
         centros={cadastros.data?.centrosCusto ?? []}
-        aberto={conciliandoManual}
-        onFechar={() => setConciliandoManual(false)}
+        aberto={Boolean(parEmDialogo)}
+        onFechar={() => setParEmDialogo(null)}
         onConciliado={() => {
-          setConciliandoManual(false);
-          setSelecaoAsaas(null);
-          setSelecaoGranatum(null);
+          setParEmDialogo(null);
           invalidarBusca();
         }}
       />
