@@ -214,7 +214,7 @@ function ConciliacaoPage() {
                 {linhasFiltradas.map((linha, i) => (
                   <div
                     key={`${linha.asaas?.id ?? "x"}-${linha.granatum?.id ?? "x"}-${i}`}
-                    className="grid grid-cols-1 items-stretch gap-0 md:grid-cols-[1fr_28px_1fr]"
+                    className="grid grid-cols-1 items-start gap-0 md:grid-cols-[1fr_32px_1fr]"
                   >
                     <div>
                       {linha.asaas ? (
@@ -229,15 +229,24 @@ function ConciliacaoPage() {
                         <div className="h-full rounded-none border border-dashed border-border/50" />
                       )}
                     </div>
-                    <div className="hidden items-center justify-center md:flex">
+                    <div className="hidden justify-center pt-6 md:flex">
                       {linha.asaas && linha.granatum ? (
-                        <div
-                          className={`h-0.5 w-full ${
-                            linha.asaas.tipoPar === "sugestao"
-                              ? "border-t-2 border-dashed border-gold/60"
-                              : "bg-primary"
-                          }`}
-                        />
+                        linha.asaas.tipoPar === "sugestao" ? (
+                          <div className="flex w-full items-center">
+                            <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
+                            <div className="w-full flex-1 border-t-[3px] border-dashed border-gold" />
+                            <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
+                          </div>
+                        ) : (
+                          <div className="flex w-full items-center">
+                            <div className="h-3 w-3 shrink-0 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]" />
+                            <div
+                              className="w-full flex-1 bg-primary shadow-[0_0_8px_var(--color-primary)]"
+                              style={{ height: 3 }}
+                            />
+                            <div className="h-3 w-3 shrink-0 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]" />
+                          </div>
+                        )
                       ) : null}
                     </div>
                     <div>
