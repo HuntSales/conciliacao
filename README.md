@@ -32,8 +32,12 @@ Conciliação bancária automática entre o extrato do Asaas e os lançamentos d
    VITE_SUPABASE_PROJECT_ID=      # igual ao SUPABASE_PROJECT_ID
    CREDENCIAIS_CIFRA_CHAVE=       # 64 caracteres hex (openssl rand -hex 32)
    RESEND_API_KEY=                # chave própria deste projeto — nunca reaproveitar de outro
-   EMAIL_REMETENTE=Conciliação <nao-responda@notify.smartapps.ia.br>
    ```
+
+   Não defina `EMAIL_REMETENTE` no `.env` a menos que o valor não tenha espaço
+   nem `<`/`>` — o `deploy.sh` lê o `.env` como shell script antes do build, e
+   um valor com espaço quebra o deploy inteiro. O código já usa um remetente
+   padrão válido; deixe a variável de fora.
 
 3. **Banco** — as migrations vivem em `supabase/migrations/`. Com o Supabase CLI logado
    (`SUPABASE_ACCESS_TOKEN` ou `supabase login`) e o projeto linkado:

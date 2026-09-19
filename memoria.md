@@ -178,6 +178,25 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     filtrar por `empresa_id` numa query nova vaza dado entre empresas, a
     proteção do banco (RLS) não cobre esse caminho porque ele nem passa pela
     RLS.
+14. **Resend: domínio errado por causa da conta ser outra (2026-09-19)**: a
+    chave `RESEND_API_KEY` deste projeto é de uma **conta Resend diferente**
+    da usada pelo Multi MCPs — mesmo sintoma já documentado lá (memoria.md do
+    Multi MCPs, item 8): `notify.smartapps.ia.br` responde 403 "domain not
+    verified" com essa chave, porque verificação de domínio é por conta, não
+    global. Essa conta nova já tinha `mail.smartapps.ia.br` verificado
+    (`GET /domains` no Resend confirmou), então o remetente padrão em
+    `email.server.ts` foi trocado pra esse domínio em vez de tentar verificar
+    `notify.smartapps.ia.br` de novo. Testado com envio real (`POST /emails`
+    direto na API) antes de considerar resolvido.
+15. **`.env` não aceita valor com espaço (2026-09-19)**: `deploy.sh` faz
+    `. ./.env` (lê como shell script) antes do build, pra exportar as
+    `VITE_*` como `--build-arg`. Um `EMAIL_REMETENTE=Nome <email>` com espaço
+    quebra isso com "Syntax error: newline unexpected" e derruba o deploy
+    inteiro — não só a variável problemática. Como o mesmo `.env` também é
+    lido puro (sem parsing de shell) por `docker run --env-file`, colocar a
+    variável entre aspas troca um problema por outro (aspas viram parte
+    literal do valor). Solução: deixar essa variável de fora do `.env` e usar
+    só o default hardcoded no código quando o valor não for um token simples.
 
 ## Estado atual e pendências conhecidas
 
@@ -191,10 +210,5 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
 - Sugestão por IA ainda não foi testada com uma chave OpenAI real — só
   typecheck/build. Vale configurar a chave em Integrações e testar na prática
   antes de confiar no pré-preenchimento em produção.
-- **`RESEND_API_KEY` ainda não configurada no servidor** — o William vai gerar
-  uma chave própria deste projeto no painel do Resend e passar. Até lá,
-  `criarEmpresa` cria a empresa normalmente mas o convite falha (erro tratado,
-  não quebra o cadastro — `aviso_convite` avisa na tela) e pode ser reenviado
-  depois em "Reenviar convite" assim que a chave estiver no `.env` do servidor.
-  Domínio de envio já decidido: `notify.smartapps.ia.br` (mesmo já verificado
-  pelo Multi MCPs).
+- ~~`RESEND_API_KEY` ainda não configurada~~ — configurada e testada em
+  2026-09-19 (ver item 14 abaixo).

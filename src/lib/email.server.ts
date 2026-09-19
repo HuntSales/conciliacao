@@ -3,7 +3,7 @@ import { DOMINIO_APP } from "@/lib/dominio";
 const RESEND_API = "https://api.resend.com/emails";
 
 function remetente(): string {
-  return process.env["EMAIL_REMETENTE"] ?? "Conciliação <nao-responda@notify.smartapps.ia.br>";
+  return process.env["EMAIL_REMETENTE"] ?? "Conciliação <nao-responda@mail.smartapps.ia.br>";
 }
 
 export type Botao = { texto: string; url: string };
