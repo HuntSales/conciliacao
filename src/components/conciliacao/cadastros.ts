@@ -23,3 +23,14 @@ export function noRaizDe<T extends NoHierarquico>(itens: T[], id: string | null)
   }
   return atual.id;
 }
+
+/**
+ * Só as folhas da árvore (sem filhos) — o Granatum rejeita lançamento em
+ * categoria/centro que tenha filhos ("Você não pode adicionar lançamentos em
+ * uma categoria com filhos"), então só folhas podem ser escolhidas de fato,
+ * não importa a profundidade da árvore.
+ */
+export function folhas<T extends NoHierarquico>(itens: T[]): T[] {
+  const comFilhos = new Set(itens.filter((i) => i.parentId !== null).map((i) => i.parentId));
+  return itens.filter((i) => !comFilhos.has(i.id));
+}

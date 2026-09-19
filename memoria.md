@@ -34,17 +34,17 @@ lançadas no Granatum).
 
 ## Infraestrutura
 
-| Item | Valor |
-|---|---|
-| URL do app | `https://conciliacao.smartapps.ia.br` |
-| Servidor (VPS) | mesmo do Multi MCPs — `179.199.140.100`, alias `ssh multi-mcps-server`. **Servidor compartilhado, multi-app**: não mexer nos containers/sites Nginx de outros projetos (`multi-mcps`, `cs-health`, `apresentacoes`, `calendar`). |
-| App no servidor | `/opt/apps/conciliacao` (clone git) |
-| Porta local do container | `3004` (3000-3003 já ocupadas pelos outros apps no mesmo host) |
-| Deploy | `ssh multi-mcps-server "cd /opt/apps/conciliacao && sh deploy.sh"` — nunca `docker restart` |
-| Repositório | GitHub `HuntSales/conciliacao` (privado). **Conta `gh` é `HuntSales`, não `corpsolutions`** — rodar `gh auth switch -u HuntSales` antes de qualquer operação neste repo (o `gh` local tem as duas contas autenticadas). Deploy key própria (somente leitura) em `/root/.ssh/github_conciliacao` no servidor, alias `github.com-conciliacao` no `~/.ssh/config` do servidor. |
-| Supabase | Projeto `hqtfxurhvwyvqpxeoyuj` (região não confirmada — criado direto pelo painel). Projeto próprio deste app, não reaproveita o do Multi MCPs. |
-| Certificado HTTPS | Let's Encrypt via Certbot, emitido em 2026-09-18, expira 2026-12-17 (renovação automática já agendada pelo Certbot). |
-| Firewall/hardening | Mesma decisão do Multi MCPs: não configurado (nada de ufw, root ainda aceita senha). |
+| Item                     | Valor                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| URL do app               | `https://conciliacao.smartapps.ia.br`                                                                                                                                                                                                                                                                                                                                       |
+| Servidor (VPS)           | mesmo do Multi MCPs — `179.199.140.100`, alias `ssh multi-mcps-server`. **Servidor compartilhado, multi-app**: não mexer nos containers/sites Nginx de outros projetos (`multi-mcps`, `cs-health`, `apresentacoes`, `calendar`).                                                                                                                                            |
+| App no servidor          | `/opt/apps/conciliacao` (clone git)                                                                                                                                                                                                                                                                                                                                         |
+| Porta local do container | `3004` (3000-3003 já ocupadas pelos outros apps no mesmo host)                                                                                                                                                                                                                                                                                                              |
+| Deploy                   | `ssh multi-mcps-server "cd /opt/apps/conciliacao && sh deploy.sh"` — nunca `docker restart`                                                                                                                                                                                                                                                                                 |
+| Repositório              | GitHub `HuntSales/conciliacao` (privado). **Conta `gh` é `HuntSales`, não `corpsolutions`** — rodar `gh auth switch -u HuntSales` antes de qualquer operação neste repo (o `gh` local tem as duas contas autenticadas). Deploy key própria (somente leitura) em `/root/.ssh/github_conciliacao` no servidor, alias `github.com-conciliacao` no `~/.ssh/config` do servidor. |
+| Supabase                 | Projeto `hqtfxurhvwyvqpxeoyuj` (região não confirmada — criado direto pelo painel). Projeto próprio deste app, não reaproveita o do Multi MCPs.                                                                                                                                                                                                                             |
+| Certificado HTTPS        | Let's Encrypt via Certbot, emitido em 2026-09-18, expira 2026-12-17 (renovação automática já agendada pelo Certbot).                                                                                                                                                                                                                                                        |
+| Firewall/hardening       | Mesma decisão do Multi MCPs: não configurado (nada de ufw, root ainda aceita senha).                                                                                                                                                                                                                                                                                        |
 
 ### Variáveis de ambiente (server-only, nunca commitadas)
 
@@ -89,7 +89,7 @@ ilegíveis pra sempre.
    container `multi-mcps` já rodando nela. Corrigido pra `3004` (primeira porta
    livre) antes do primeiro deploy bem-sucedido.
 4. **Container "fantasma" após deploy que falha por porta ocupada**: um `docker
-   run` que falha ao dar bind na porta pode deixar um container parado em estado
+run` que falha ao dar bind na porta pode deixar um container parado em estado
    `Created` (não `Running`) segurando o nome — o `docker rm -f` do deploy
    seguinte remove esse container normalmente antes de tentar de novo; se um
    deploy falhar por "port is already allocated" mesmo depois de corrigir a
@@ -99,6 +99,18 @@ ilegíveis pra sempre.
    sempre confirmar com `gh auth status` qual está ativa antes de operações em
    repositório (deploy key, push), já que este projeto usa `HuntSales`, diferente
    do padrão `corpsolutions` do Multi MCPs.
+6. **Erro real em produção (2026-09-18): `HTTP 422 — "Você não pode adicionar
+   lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/centro
+   de custo era um cascata de 2 níveis fixos (Categoria + Subcategoria), mas a
+   árvore real do Granatum tem até 4 níveis de profundidade (ex.: Despesas
+   operacionais → Despesas Comerciais → Marketing e publicidade → Tráfego pago) —
+   dava pra escolher um nó que ainda tinha filhos, e a API do Granatum só aceita
+   folha (sem filhos) em `categoria_id`/`centro_custo_lucro_id`. Corrigido trocando
+   os dois seletores (edição inline e criação a partir do Asaas) por um único
+   select por hierarquia, listando **só as folhas** (`folhas()` em
+   `components/conciliacao/cadastros.ts`) com o caminho completo (`caminho`,
+   ex. "Despesas operacionais > Despesas Comerciais > Marketing e publicidade >
+   Tráfego pago") como rótulo — funciona pra qualquer profundidade de árvore.
 
 ## Estado atual e pendências conhecidas
 

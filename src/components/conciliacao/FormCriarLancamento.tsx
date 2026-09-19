@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import { criarLancamentoAPartirDoAsaas } from "@/lib/conciliacao.functions";
-import { filhosDe, nivelSuperior } from "./cadastros";
+import { folhas } from "./cadastros";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import type { ItemAsaas } from "@/lib/conciliacao.functions";
 
@@ -39,22 +39,19 @@ export function FormCriarLancamento({
   onCriado: () => void;
 }) {
   const [descricao, setDescricao] = useState(item?.descricao ?? "");
-  const [categoriaTopo, setCategoriaTopo] = useState("");
-  const [categoriaSub, setCategoriaSub] = useState("");
-  const [centroTopo, setCentroTopo] = useState("");
-  const [centroSub, setCentroSub] = useState("");
+  const [categoriaId, setCategoriaId] = useState("");
+  const [centroCustoId, setCentroCustoId] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  const categoriasDoTipo = useMemo(
-    () => categorias.filter((c) => !item || c.tipo === item.tipo || c.tipo === "mista"),
+  // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
+  // folhas da árvore são opções válidas, qualquer que seja a profundidade.
+  const categoriasFolha = useMemo(
+    () => folhas(categorias.filter((c) => !item || c.tipo === item.tipo || c.tipo === "mista")),
     [categorias, item],
   );
-  const subcategorias = filhosDe(categoriasDoTipo, categoriaTopo || null);
-  const subcentros = filhosDe(centros, centroTopo || null);
+  const centrosFolha = useMemo(() => folhas(centros), [centros]);
 
   if (!item) return null;
-
-  const categoriaId = categoriaSub || categoriaTopo;
 
   const salvar = async () => {
     if (!categoriaId) {
@@ -70,7 +67,7 @@ export function FormCriarLancamento({
           descricao,
           valor: item.valor,
           categoriaId,
-          centroCustoId: centroSub || centroTopo || null,
+          centroCustoId: centroCustoId || null,
         },
       });
       toast.success("Lançamento criado no Granatum e conciliado");
@@ -107,42 +104,17 @@ export function FormCriarLancamento({
             <Label className="lbl">Descrição</Label>
             <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3">
             <div className="space-y-1">
               <Label className="lbl">Categoria</Label>
-              <Select
-                value={categoriaTopo}
-                onValueChange={(v) => {
-                  setCategoriaTopo(v);
-                  setCategoriaSub("");
-                }}
-              >
+              <Select value={categoriaId} onValueChange={setCategoriaId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  {nivelSuperior(categoriasDoTipo).map((c) => (
+                  {categoriasFolha.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="lbl">Subcategoria</Label>
-              <Select
-                value={categoriaSub}
-                onValueChange={setCategoriaSub}
-                disabled={subcategorias.length === 0}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={subcategorias.length ? "Selecione" : "—"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {subcategorias.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
+                      {c.caminho}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -150,39 +122,14 @@ export function FormCriarLancamento({
             </div>
             <div className="space-y-1">
               <Label className="lbl">Centro de custo</Label>
-              <Select
-                value={centroTopo}
-                onValueChange={(v) => {
-                  setCentroTopo(v);
-                  setCentroSub("");
-                }}
-              >
+              <Select value={centroCustoId} onValueChange={setCentroCustoId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
-                  {nivelSuperior(centros).map((c) => (
+                  {centrosFolha.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="lbl">Subcentro</Label>
-              <Select
-                value={centroSub}
-                onValueChange={setCentroSub}
-                disabled={subcentros.length === 0}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={subcentros.length ? "Selecione" : "—"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {subcentros.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
+                      {c.caminho}
                     </SelectItem>
                   ))}
                 </SelectContent>

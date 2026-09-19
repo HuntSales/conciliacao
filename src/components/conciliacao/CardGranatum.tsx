@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import { editarLancamento, type ItemGranatum } from "@/lib/conciliacao.functions";
-import { filhosDe, nivelSuperior, noRaizDe } from "./cadastros";
+import { folhas } from "./cadastros";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 
 function badge(tipoPar: ItemGranatum["tipoPar"]) {
@@ -50,26 +50,18 @@ export function CardGranatum({
   onRejeitarSugestao?: (() => void) | undefined;
   onSalvo: () => void;
 }) {
-  const categoriasDoTipo = useMemo(
-    () => categorias.filter((c) => c.tipo === item.tipo || c.tipo === "mista"),
+  // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
+  // folhas da árvore são opções válidas, qualquer que seja a profundidade.
+  const categoriasFolha = useMemo(
+    () => folhas(categorias.filter((c) => c.tipo === item.tipo || c.tipo === "mista")),
     [categorias, item.tipo],
   );
-  const categoriaTopoInicial = noRaizDe(categoriasDoTipo, item.categoriaId) ?? "";
-  const categoriaSubInicial =
-    item.categoriaId && item.categoriaId !== categoriaTopoInicial ? item.categoriaId : "";
-  const centroTopoInicial = noRaizDe(centros, item.centroCustoId) ?? "";
-  const centroSubInicial =
-    item.centroCustoId && item.centroCustoId !== centroTopoInicial ? item.centroCustoId : "";
+  const centrosFolha = useMemo(() => folhas(centros), [centros]);
 
   const [descricao, setDescricao] = useState(item.descricao);
-  const [categoriaTopo, setCategoriaTopo] = useState(categoriaTopoInicial);
-  const [categoriaSub, setCategoriaSub] = useState(categoriaSubInicial);
-  const [centroTopo, setCentroTopo] = useState(centroTopoInicial);
-  const [centroSub, setCentroSub] = useState(centroSubInicial);
+  const [categoriaId, setCategoriaId] = useState(item.categoriaId ?? "");
+  const [centroCustoId, setCentroCustoId] = useState(item.centroCustoId ?? "");
   const [salvando, setSalvando] = useState(false);
-
-  const subcategorias = filhosDe(categoriasDoTipo, categoriaTopo || null);
-  const subcentros = filhosDe(centros, centroTopo || null);
 
   const salvar = async () => {
     setSalvando(true);
@@ -78,8 +70,8 @@ export function CardGranatum({
         data: {
           id: item.id,
           descricao,
-          categoriaId: categoriaSub || categoriaTopo || undefined,
-          centroCustoId: centroSub || centroTopo || null,
+          categoriaId: categoriaId || undefined,
+          centroCustoId: centroCustoId || null,
           antes: {
             descricao: item.descricao,
             categoriaId: item.categoriaId,
@@ -118,42 +110,17 @@ export function CardGranatum({
 
       <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid gap-2">
         <div className="space-y-1">
           <Label className="lbl">Categoria</Label>
-          <Select
-            value={categoriaTopo}
-            onValueChange={(v) => {
-              setCategoriaTopo(v);
-              setCategoriaSub("");
-            }}
-          >
+          <Select value={categoriaId} onValueChange={setCategoriaId}>
             <SelectTrigger>
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
             <SelectContent>
-              {nivelSuperior(categoriasDoTipo).map((c) => (
+              {categoriasFolha.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="lbl">Subcategoria</Label>
-          <Select
-            value={categoriaSub}
-            onValueChange={setCategoriaSub}
-            disabled={subcategorias.length === 0}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={subcategorias.length ? "Selecione" : "—"} />
-            </SelectTrigger>
-            <SelectContent>
-              {subcategorias.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.nome}
+                  {c.caminho}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -161,35 +128,14 @@ export function CardGranatum({
         </div>
         <div className="space-y-1">
           <Label className="lbl">Centro de custo</Label>
-          <Select
-            value={centroTopo}
-            onValueChange={(v) => {
-              setCentroTopo(v);
-              setCentroSub("");
-            }}
-          >
+          <Select value={centroCustoId} onValueChange={setCentroCustoId}>
             <SelectTrigger>
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
             <SelectContent>
-              {nivelSuperior(centros).map((c) => (
+              {centrosFolha.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
-                  {c.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="lbl">Subcentro</Label>
-          <Select value={centroSub} onValueChange={setCentroSub} disabled={subcentros.length === 0}>
-            <SelectTrigger>
-              <SelectValue placeholder={subcentros.length ? "Selecione" : "—"} />
-            </SelectTrigger>
-            <SelectContent>
-              {subcentros.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.nome}
+                  {c.caminho}
                 </SelectItem>
               ))}
             </SelectContent>
