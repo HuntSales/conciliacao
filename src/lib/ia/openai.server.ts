@@ -14,39 +14,44 @@ export type SugestaoCategorizacao = {
   centroCustoId: string | null;
 };
 
-async function carregarConfig(): Promise<{ token: string; modelo: string } | null> {
+async function carregarConfig(
+  empresaId: string,
+): Promise<{ token: string; modelo: string } | null> {
   const { data } = await supabaseAdmin
     .from("integracoes_ia")
     .select("token_cifrado, modelo")
+    .eq("empresa_id", empresaId)
     .eq("provedor", "openai")
     .maybeSingle();
   if (!data?.token_cifrado || !data.modelo) return null;
   return { token: descriptografar(data.token_cifrado), modelo: data.modelo };
 }
 
-export async function iaConfigurada(): Promise<boolean> {
-  return (await carregarConfig()) !== null;
+export async function iaConfigurada(empresaId: string): Promise<boolean> {
+  return (await carregarConfig(empresaId)) !== null;
 }
 
-export async function salvarIntegracaoIA(dados: {
-  token?: string | undefined;
-  modelo: string;
-}): Promise<void> {
+export async function salvarIntegracaoIA(
+  empresaId: string,
+  dados: { token?: string | undefined; modelo: string },
+): Promise<void> {
   const { data: existente } = await supabaseAdmin
     .from("integracoes_ia")
     .select("id")
+    .eq("empresa_id", empresaId)
     .eq("provedor", "openai")
     .maybeSingle();
 
   await supabaseAdmin.from("integracoes_ia").upsert(
     {
       ...(existente ? { id: existente.id } : {}),
+      empresa_id: empresaId,
       provedor: "openai",
       modelo: dados.modelo,
       ...(dados.token ? { token_cifrado: criptografar(dados.token) } : {}),
       atualizado_em: new Date().toISOString(),
     },
-    { onConflict: "provedor" },
+    { onConflict: "empresa_id,provedor" },
   );
 }
 
@@ -55,15 +60,18 @@ export async function salvarIntegracaoIA(dados: {
  * opções REAIS já cadastradas no Granatum (nunca inventa uma nova — o schema
  * JSON restringe a resposta a um enum com só os ids recebidos).
  */
-export async function sugerirCategorizacao(args: {
-  descricao: string;
-  valor: number;
-  tipo: "receita" | "despesa";
-  categorias: CandidatoOpcao[];
-  centros: CandidatoOpcao[];
-  historico: ExemploHistorico[];
-}): Promise<SugestaoCategorizacao | null> {
-  const config = await carregarConfig();
+export async function sugerirCategorizacao(
+  empresaId: string,
+  args: {
+    descricao: string;
+    valor: number;
+    tipo: "receita" | "despesa";
+    categorias: CandidatoOpcao[];
+    centros: CandidatoOpcao[];
+    historico: ExemploHistorico[];
+  },
+): Promise<SugestaoCategorizacao | null> {
+  const config = await carregarConfig(empresaId);
   if (!config) return null;
   if (args.categorias.length === 0) return null;
 

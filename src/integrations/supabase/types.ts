@@ -37,27 +37,39 @@ export type Database = {
         Row: {
           atualizado_em: string;
           conta_id_granatum: string;
+          empresa_id: string;
           id: string;
           nome: string | null;
         };
         Insert: {
           atualizado_em?: string;
           conta_id_granatum: string;
+          empresa_id: string;
           id?: string;
           nome?: string | null;
         };
         Update: {
           atualizado_em?: string;
           conta_id_granatum?: string;
+          empresa_id?: string;
           id?: string;
           nome?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "conta_granatum_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: true;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       credenciais_fallback: {
         Row: {
           ambiente: string | null;
           atualizado_em: string;
+          empresa_id: string;
           id: string;
           provedor: string;
           token_cifrado: string | null;
@@ -66,6 +78,7 @@ export type Database = {
         Insert: {
           ambiente?: string | null;
           atualizado_em?: string;
+          empresa_id: string;
           id?: string;
           provedor: string;
           token_cifrado?: string | null;
@@ -74,16 +87,53 @@ export type Database = {
         Update: {
           ambiente?: string | null;
           atualizado_em?: string;
+          empresa_id?: string;
           id?: string;
           provedor?: string;
           token_cifrado?: string | null;
           url_base?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credenciais_fallback_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      empresas: {
+        Row: {
+          cnpj: string | null;
+          criado_em: string;
+          email: string;
+          id: string;
+          razao_social: string;
+          status: Database["public"]["Enums"]["empresa_status"];
+        };
+        Insert: {
+          cnpj?: string | null;
+          criado_em?: string;
+          email: string;
+          id?: string;
+          razao_social: string;
+          status?: Database["public"]["Enums"]["empresa_status"];
+        };
+        Update: {
+          cnpj?: string | null;
+          criado_em?: string;
+          email?: string;
+          id?: string;
+          razao_social?: string;
+          status?: Database["public"]["Enums"]["empresa_status"];
         };
         Relationships: [];
       };
       integracoes_ia: {
         Row: {
           atualizado_em: string;
+          empresa_id: string;
           id: string;
           modelo: string | null;
           provedor: string;
@@ -91,6 +141,7 @@ export type Database = {
         };
         Insert: {
           atualizado_em?: string;
+          empresa_id: string;
           id?: string;
           modelo?: string | null;
           provedor?: string;
@@ -98,17 +149,27 @@ export type Database = {
         };
         Update: {
           atualizado_em?: string;
+          empresa_id?: string;
           id?: string;
           modelo?: string | null;
           provedor?: string;
           token_cifrado?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "integracoes_ia_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       integracoes_mcp: {
         Row: {
           atualizado_em: string;
           criado_em: string;
+          empresa_id: string;
           id: string;
           nome: string;
           provedor: string;
@@ -122,6 +183,7 @@ export type Database = {
         Insert: {
           atualizado_em?: string;
           criado_em?: string;
+          empresa_id: string;
           id?: string;
           nome: string;
           provedor: string;
@@ -135,6 +197,7 @@ export type Database = {
         Update: {
           atualizado_em?: string;
           criado_em?: string;
+          empresa_id?: string;
           id?: string;
           nome?: string;
           provedor?: string;
@@ -145,13 +208,22 @@ export type Database = {
           ultimo_erro?: string | null;
           url_mcp?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "integracoes_mcp_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       log_alteracoes_granatum: {
         Row: {
           antes: Json | null;
           criado_em: string;
           depois: Json | null;
+          empresa_id: string;
           id: string;
           lancamento_id: string;
           usuario_id: string | null;
@@ -160,6 +232,7 @@ export type Database = {
           antes?: Json | null;
           criado_em?: string;
           depois?: Json | null;
+          empresa_id: string;
           id?: string;
           lancamento_id: string;
           usuario_id?: string | null;
@@ -168,11 +241,20 @@ export type Database = {
           antes?: Json | null;
           criado_em?: string;
           depois?: Json | null;
+          empresa_id?: string;
           id?: string;
           lancamento_id?: string;
           usuario_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "log_alteracoes_granatum_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       pares_conciliacao: {
         Row: {
@@ -182,6 +264,7 @@ export type Database = {
           criado_em: string;
           data: string;
           descricao: string | null;
+          empresa_id: string;
           granatum_id: string;
           id: string;
           tipo: string;
@@ -195,6 +278,7 @@ export type Database = {
           criado_em?: string;
           data: string;
           descricao?: string | null;
+          empresa_id: string;
           granatum_id: string;
           id?: string;
           tipo: string;
@@ -208,18 +292,63 @@ export type Database = {
           criado_em?: string;
           data?: string;
           descricao?: string | null;
+          empresa_id?: string;
           granatum_id?: string;
           id?: string;
           tipo?: string;
           usuario_id?: string | null;
           valor?: number;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "pares_conciliacao_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      profiles: {
+        Row: {
+          criado_em: string;
+          email: string | null;
+          empresa_id: string | null;
+          id: string;
+          nome: string | null;
+          papel: Database["public"]["Enums"]["app_role"];
+        };
+        Insert: {
+          criado_em?: string;
+          email?: string | null;
+          empresa_id?: string | null;
+          id: string;
+          nome?: string | null;
+          papel?: Database["public"]["Enums"]["app_role"];
+        };
+        Update: {
+          criado_em?: string;
+          email?: string | null;
+          empresa_id?: string | null;
+          id?: string;
+          nome?: string | null;
+          papel?: Database["public"]["Enums"]["app_role"];
+        };
+        Relationships: [
+          {
+            foreignKeyName: "profiles_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       tool_mapping: {
         Row: {
           atualizado_em: string;
           criado_em: string;
+          empresa_id: string;
           funcao: string;
           id: string;
           provedor: string;
@@ -228,6 +357,7 @@ export type Database = {
         Insert: {
           atualizado_em?: string;
           criado_em?: string;
+          empresa_id: string;
           funcao: string;
           id?: string;
           provedor: string;
@@ -236,10 +366,40 @@ export type Database = {
         Update: {
           atualizado_em?: string;
           criado_em?: string;
+          empresa_id?: string;
           funcao?: string;
           id?: string;
           provedor?: string;
           tool_name?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "tool_mapping_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_roles: {
+        Row: {
+          criado_em: string;
+          id: string;
+          role: Database["public"]["Enums"]["app_role"];
+          user_id: string;
+        };
+        Insert: {
+          criado_em?: string;
+          id?: string;
+          role: Database["public"]["Enums"]["app_role"];
+          user_id: string;
+        };
+        Update: {
+          criado_em?: string;
+          id?: string;
+          role?: Database["public"]["Enums"]["app_role"];
+          user_id?: string;
         };
         Relationships: [];
       };
@@ -248,10 +408,18 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      current_empresa_id: { Args: never; Returns: string };
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"];
+          _user_id: string;
+        };
+        Returns: boolean;
+      };
     };
     Enums: {
-      [_ in never]: never;
+      app_role: "super_admin" | "empresa_admin" | "empresa_membro";
+      empresa_status: "ativa" | "suspensa";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -375,6 +543,9 @@ export const Constants = {
     Enums: {},
   },
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["super_admin", "empresa_admin", "empresa_membro"],
+      empresa_status: ["ativa", "suspensa"],
+    },
   },
 } as const;

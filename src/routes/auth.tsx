@@ -6,6 +6,7 @@ import { Backdrop } from "@/components/corp/Backdrop";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { garantirPrimeiroSuperAdmin } from "@/lib/empresas.functions";
 
 function caminhoSeguro(valor: unknown): string {
   return typeof valor === "string" && valor.startsWith("/") && !valor.startsWith("//") ? valor : "";
@@ -29,12 +30,38 @@ function AuthPage() {
   const [senha, setSenha] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  const redirecionar = async () => {
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) return;
+    if (next) {
+      window.location.href = next;
+      return;
+    }
+    try {
+      await garantirPrimeiroSuperAdmin();
+    } catch {
+      /* sem permissão de promoção: segue o fluxo normal */
+    }
+    const { data: perfil } = await supabase
+      .from("profiles")
+      .select("empresa_id")
+      .eq("id", data.user.id)
+      .maybeSingle();
+    if (perfil?.empresa_id) {
+      void navigate({ to: "/conciliacao" });
+      return;
+    }
+    const { data: papeis } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.user.id);
+    const ehSuper = (papeis ?? []).some((p) => p.role === "super_admin");
+    void navigate({ to: ehSuper ? "/admin" : "/conciliacao" });
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        if (next) window.location.href = next;
-        else void navigate({ to: "/conciliacao" });
-      }
+      if (data.session) void redirecionar();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -45,8 +72,7 @@ function AuthPage() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
       if (error) throw error;
-      if (next) window.location.href = next;
-      else void navigate({ to: "/conciliacao" });
+      await redirecionar();
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Não foi possível entrar");
     } finally {

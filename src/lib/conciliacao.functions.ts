@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireEmpresa } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { buscarExtratoAsaas, buscarSaldoAsaas } from "@/lib/mcp/asaas.server";
 import {
@@ -22,12 +22,11 @@ import { folhas } from "@/lib/hierarquia";
 import { sugerirCategorizacao, iaConfigurada, type ExemploHistorico } from "@/lib/ia/openai.server";
 import type { LancamentoAsaas, LancamentoGranatum } from "@/lib/mcp/tipos";
 
-async function contaConfigurada(): Promise<string> {
+async function contaConfigurada(empresaId: string): Promise<string> {
   const { data } = await supabaseAdmin
     .from("conta_granatum")
     .select("conta_id_granatum")
-    .order("atualizado_em", { ascending: false })
-    .limit(1)
+    .eq("empresa_id", empresaId)
     .maybeSingle();
   if (!data?.conta_id_granatum) {
     throw new Error(
@@ -38,11 +37,11 @@ async function contaConfigurada(): Promise<string> {
 }
 
 export const listarCadastros = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .middleware([requireEmpresa])
+  .handler(async ({ context }) => {
     const [categorias, centrosCusto] = await Promise.all([
-      listarCategoriasGranatum(),
-      listarCentrosCustoGranatum(),
+      listarCategoriasGranatum(context.empresaId),
+      listarCentrosCustoGranatum(context.empresaId),
     ]);
     return { categorias, centrosCusto };
   });
@@ -64,16 +63,17 @@ export type ItemGranatum = LancamentoGranatum & {
 };
 
 export const buscarLancamentos = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => periodoSchema.parse(d))
-  .handler(async ({ data }) => {
-    const contaId = await contaConfigurada();
+  .handler(async ({ data, context }) => {
+    const empresaId = context.empresaId;
+    const contaId = await contaConfigurada(empresaId);
 
     const [asaas, granatum, saldoAsaas, saldoGranatum] = await Promise.all([
-      buscarExtratoAsaas(data.dataInicio, data.dataFim),
-      listarLancamentosGranatum(contaId, data.dataInicio, data.dataFim),
-      buscarSaldoAsaas().catch(() => null),
-      buscarSaldoContaGranatum(contaId).catch(() => null),
+      buscarExtratoAsaas(empresaId, data.dataInicio, data.dataFim),
+      listarLancamentosGranatum(empresaId, contaId, data.dataInicio, data.dataFim),
+      buscarSaldoAsaas(empresaId).catch(() => null),
+      buscarSaldoContaGranatum(empresaId, contaId).catch(() => null),
     ]);
 
     const asaasIds = new Set(asaas.map((a) => a.id));
@@ -82,6 +82,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
     const { data: paresExistentes } = await supabaseAdmin
       .from("pares_conciliacao")
       .select("asaas_id, granatum_id, tipo")
+      .eq("empresa_id", empresaId)
       .or(
         `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
           [...granatumIds].join(",") || '""'
@@ -120,6 +121,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         novosAutomaticos.map((p) => {
           const g = granatum.find((x) => x.id === p.granatumId);
           return {
+            empresa_id: empresaId,
             asaas_id: p.asaasId,
             granatum_id: p.granatumId,
             data: g?.data ?? data.dataInicio,
@@ -128,7 +130,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
             usuario_id: userData.user?.id ?? null,
           };
         }),
-        { onConflict: "asaas_id" },
+        { onConflict: "empresa_id,asaas_id" },
       );
       for (const p of novosAutomaticos) {
         paresPorAsaas.set(p.asaasId, { granatumId: p.granatumId, tipo: "automatico" });
@@ -195,11 +197,12 @@ const confirmarParSchema = z.object({
 });
 
 export const confirmarPar = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => confirmarParSchema.parse(d))
   .handler(async ({ data, context }) => {
     const { error } = await supabaseAdmin.from("pares_conciliacao").upsert(
       {
+        empresa_id: context.empresaId,
         asaas_id: data.asaasId,
         granatum_id: data.granatumId,
         data: data.data,
@@ -210,7 +213,7 @@ export const confirmarPar = createServerFn({ method: "POST" })
         ...(data.centroCustoId !== undefined ? { centro_custo_id: data.centroCustoId } : {}),
         usuario_id: context.userId,
       },
-      { onConflict: "asaas_id" },
+      { onConflict: "empresa_id,asaas_id" },
     );
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -219,12 +222,13 @@ export const confirmarPar = createServerFn({ method: "POST" })
 const desfazerParSchema = z.object({ asaasId: z.string() });
 
 export const desfazerPar = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => desfazerParSchema.parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { error } = await supabaseAdmin
       .from("pares_conciliacao")
       .delete()
+      .eq("empresa_id", context.empresaId)
       .eq("asaas_id", data.asaasId);
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -244,18 +248,19 @@ const editarSchema = z.object({
 });
 
 export const editarLancamento = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => editarSchema.parse(d))
   .handler(async ({ data, context }) => {
     const { antes, ...edicao } = data;
 
     try {
-      await editarLancamentoGranatum(edicao);
+      await editarLancamentoGranatum(context.empresaId, edicao);
     } catch (erro) {
       throw new Error(erro instanceof Error ? erro.message : "Falha ao editar no Granatum");
     }
 
     await supabaseAdmin.from("log_alteracoes_granatum").insert({
+      empresa_id: context.empresaId,
       lancamento_id: data.id,
       antes,
       depois: {
@@ -276,6 +281,7 @@ export const editarLancamento = createServerFn({ method: "POST" })
         ...(data.categoriaId !== undefined ? { categoria_id: data.categoriaId } : {}),
         ...(data.centroCustoId !== undefined ? { centro_custo_id: data.centroCustoId } : {}),
       })
+      .eq("empresa_id", context.empresaId)
       .eq("granatum_id", data.id);
 
     return { ok: true };
@@ -294,12 +300,14 @@ type ItemParaCriar = z.infer<typeof itemParaCriarSchema>;
 
 /** Núcleo compartilhado entre a criação individual e a criação em lote. */
 async function criarUmLancamentoAPartirDoAsaas(
+  empresaId: string,
   item: ItemParaCriar,
   usuarioId: string | undefined,
 ): Promise<string> {
   const { data: parExistente } = await supabaseAdmin
     .from("pares_conciliacao")
     .select("granatum_id")
+    .eq("empresa_id", empresaId)
     .eq("asaas_id", item.asaasId)
     .maybeSingle();
   if (parExistente) {
@@ -309,13 +317,12 @@ async function criarUmLancamentoAPartirDoAsaas(
   const { data: contaRow } = await supabaseAdmin
     .from("conta_granatum")
     .select("conta_id_granatum")
-    .order("atualizado_em", { ascending: false })
-    .limit(1)
+    .eq("empresa_id", empresaId)
     .maybeSingle();
   if (!contaRow?.conta_id_granatum)
     throw new Error("Configure a conta do Granatum em Integrações.");
 
-  const granatumId = await criarLancamentoGranatum({
+  const granatumId = await criarLancamentoGranatum(empresaId, {
     descricao: item.descricao,
     contaId: contaRow.conta_id_granatum,
     categoriaId: item.categoriaId,
@@ -326,6 +333,7 @@ async function criarUmLancamentoAPartirDoAsaas(
   });
 
   await supabaseAdmin.from("pares_conciliacao").insert({
+    empresa_id: empresaId,
     asaas_id: item.asaasId,
     granatum_id: granatumId,
     data: item.data,
@@ -341,10 +349,14 @@ async function criarUmLancamentoAPartirDoAsaas(
 }
 
 export const criarLancamentoAPartirDoAsaas = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => itemParaCriarSchema.parse(d))
   .handler(async ({ data, context }) => {
-    const granatumId = await criarUmLancamentoAPartirDoAsaas(data, context.userId);
+    const granatumId = await criarUmLancamentoAPartirDoAsaas(
+      context.empresaId,
+      data,
+      context.userId,
+    );
     return { ok: true, granatumId };
   });
 
@@ -370,13 +382,14 @@ export type ResultadoLote = {
 };
 
 export const criarLoteAPartirDoAsaas = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => criarLoteSchema.parse(d))
   .handler(async ({ data, context }): Promise<ResultadoLote[]> => {
     const resultados: ResultadoLote[] = [];
     for (const item of data.itens) {
       try {
         await criarUmLancamentoAPartirDoAsaas(
+          context.empresaId,
           {
             asaasId: item.asaasId,
             data: item.data,
@@ -412,12 +425,13 @@ export type SugestaoParaLancamento = {
 };
 
 export const sugerirParaLancamento = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => sugerirSchema.parse(d))
-  .handler(async ({ data }): Promise<SugestaoParaLancamento> => {
+  .handler(async ({ data, context }): Promise<SugestaoParaLancamento> => {
+    const empresaId = context.empresaId;
     const [categorias, centros] = await Promise.all([
-      listarCategoriasGranatum(),
-      listarCentrosCustoGranatum(),
+      listarCategoriasGranatum(empresaId),
+      listarCentrosCustoGranatum(empresaId),
     ]);
     const categoriasFolha = folhas(
       categorias.filter((c) => c.tipo === data.tipo || c.tipo === "mista"),
@@ -430,6 +444,7 @@ export const sugerirParaLancamento = createServerFn({ method: "POST" })
     const { data: paresHistorico } = await supabaseAdmin
       .from("pares_conciliacao")
       .select("descricao, categoria_id, centro_custo_id")
+      .eq("empresa_id", empresaId)
       .not("categoria_id", "is", null)
       .order("criado_em", { ascending: false })
       .limit(300);
@@ -450,8 +465,13 @@ export const sugerirParaLancamento = createServerFn({ method: "POST" })
     // ou a busca falhar.
     let historicoRemoto: ExemploHistorico[] = [];
     try {
-      const contaId = await contaConfigurada();
-      const encontrados = await buscarLancamentosSimilaresGranatum(contaId, data.descricao, 20);
+      const contaId = await contaConfigurada(empresaId);
+      const encontrados = await buscarLancamentosSimilaresGranatum(
+        empresaId,
+        contaId,
+        data.descricao,
+        20,
+      );
       historicoRemoto = encontrados
         .filter((l) => l.categoriaId)
         .map((l) => ({
@@ -468,8 +488,8 @@ export const sugerirParaLancamento = createServerFn({ method: "POST" })
       .map((h) => ({ ...h, score: similaridadeDescricao(h.descricao, data.descricao) }))
       .sort((a, b) => b.score - a.score);
 
-    if (await iaConfigurada()) {
-      const sugestao = await sugerirCategorizacao({
+    if (await iaConfigurada(empresaId)) {
+      const sugestao = await sugerirCategorizacao(empresaId, {
         descricao: data.descricao,
         valor: data.valor,
         tipo: data.tipo,

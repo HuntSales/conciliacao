@@ -22,17 +22,13 @@ import {
   type ItemGranatum,
 } from "@/lib/conciliacao.functions";
 import { hojeIso } from "@/lib/format";
+import { montarNav } from "@/components/corp/nav-padrao";
+import { useSuperAdmin } from "@/lib/use-super-admin";
 
 export const Route = createFileRoute("/_authenticated/conciliacao")({
   head: () => ({ meta: [{ title: "Conciliação — Asaas × Granatum" }] }),
   component: ConciliacaoPage,
 });
-
-const NAV = [
-  { rotulo: "Conciliação", para: "/conciliacao", exato: true },
-  { rotulo: "Integrações", para: "/integracoes" },
-  { rotulo: "Histórico", para: "/historico" },
-];
 
 type FiltroRapido = "todos" | "conciliados" | "pendentes_asaas" | "pendentes_granatum";
 
@@ -77,6 +73,8 @@ function ConciliacaoPage() {
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
   const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
   const [loteAberto, setLoteAberto] = useState(false);
+  const superAdmin = useSuperAdmin();
+  const nav = montarNav("conciliacao", superAdmin.data ?? false);
 
   const cadastros = useQuery({
     queryKey: ["cadastros"],
@@ -170,7 +168,7 @@ function ConciliacaoPage() {
   const itensLote = (dados?.asaas ?? []).filter((a) => selecionadosLote.has(a.id));
 
   return (
-    <Shell itens={NAV} contexto="Conciliação">
+    <Shell itens={nav} contexto="Conciliação">
       <TituloPagina
         titulo="Conciliação"
         subtitulo="Ligue automaticamente o extrato do Asaas aos lançamentos do Granatum."

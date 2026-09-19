@@ -24,17 +24,13 @@ import {
   salvarIntegracaoIA,
 } from "@/lib/integracoes.functions";
 import type { Provedor } from "@/lib/mcp/tipos";
+import { montarNav } from "@/components/corp/nav-padrao";
+import { useSuperAdmin } from "@/lib/use-super-admin";
 
 export const Route = createFileRoute("/_authenticated/integracoes")({
   head: () => ({ meta: [{ title: "Integrações — Conciliação" }] }),
   component: IntegracoesPage,
 });
-
-const NAV = [
-  { rotulo: "Conciliação", para: "/conciliacao" },
-  { rotulo: "Integrações", para: "/integracoes", exato: true },
-  { rotulo: "Histórico", para: "/historico" },
-];
 
 function PainelProvedor({ provedor, titulo }: { provedor: Provedor; titulo: string }) {
   const queryClient = useQueryClient();
@@ -422,8 +418,10 @@ function PainelIA() {
 }
 
 function IntegracoesPage() {
+  const superAdmin = useSuperAdmin();
+  const nav = montarNav("integracoes", superAdmin.data ?? false);
   return (
-    <Shell itens={NAV} contexto="Integrações">
+    <Shell itens={nav} contexto="Integrações">
       <TituloPagina
         titulo="Integrações"
         subtitulo="Cadastre os servidores MCP do Asaas e do Granatum e a conta que representa o Asaas."

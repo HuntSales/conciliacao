@@ -16,17 +16,13 @@ import {
 } from "@/components/ui/table";
 import { formatarDataCurta, formatarMoeda, hojeIso, inicioMesIso } from "@/lib/format";
 import { listarHistoricoConciliacoes, listarHistoricoAlteracoes } from "@/lib/historico.functions";
+import { montarNav } from "@/components/corp/nav-padrao";
+import { useSuperAdmin } from "@/lib/use-super-admin";
 
 export const Route = createFileRoute("/_authenticated/historico")({
   head: () => ({ meta: [{ title: "Histórico — Conciliação" }] }),
   component: HistoricoPage,
 });
-
-const NAV = [
-  { rotulo: "Conciliação", para: "/conciliacao" },
-  { rotulo: "Integrações", para: "/integracoes" },
-  { rotulo: "Histórico", para: "/historico", exato: true },
-];
 
 function rotuloTipo(tipo: string) {
   if (tipo === "automatico") return "Automático";
@@ -51,8 +47,11 @@ function HistoricoPage() {
     alteracoes.mutate();
   };
 
+  const superAdmin = useSuperAdmin();
+  const nav = montarNav("historico", superAdmin.data ?? false);
+
   return (
-    <Shell itens={NAV} contexto="Histórico">
+    <Shell itens={nav} contexto="Histórico">
       <TituloPagina
         titulo="Histórico"
         subtitulo="Conciliações já feitas e alterações no Granatum, por período."

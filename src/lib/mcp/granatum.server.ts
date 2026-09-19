@@ -15,30 +15,35 @@ type IntegracaoRow = {
   token_cifrado: string | null;
 };
 
-async function carregarIntegracao(): Promise<IntegracaoRow | null> {
+async function carregarIntegracao(empresaId: string): Promise<IntegracaoRow | null> {
   const { data } = await supabaseAdmin
     .from("integracoes_mcp")
     .select("id, url_mcp, transporte, token_cifrado")
+    .eq("empresa_id", empresaId)
     .eq("provedor", "granatum")
     .maybeSingle();
   if (!data) return null;
   return { ...data, transporte: data.transporte as "http" | "sse" | null };
 }
 
-async function carregarFallback(): Promise<{ token: string; urlBase: string } | null> {
+async function carregarFallback(
+  empresaId: string,
+): Promise<{ token: string; urlBase: string } | null> {
   const { data } = await supabaseAdmin
     .from("credenciais_fallback")
     .select("token_cifrado, url_base")
+    .eq("empresa_id", empresaId)
     .eq("provedor", "granatum")
     .maybeSingle();
   if (!data?.token_cifrado || !data.url_base) return null;
   return { token: descriptografar(data.token_cifrado), urlBase: data.url_base };
 }
 
-async function carregarToolMapping(funcao: string): Promise<string | null> {
+async function carregarToolMapping(empresaId: string, funcao: string): Promise<string | null> {
   const { data } = await supabaseAdmin
     .from("tool_mapping")
     .select("tool_name")
+    .eq("empresa_id", empresaId)
     .eq("provedor", "granatum")
     .eq("funcao", funcao)
     .maybeSingle();
@@ -54,12 +59,12 @@ function configMcp(integracao: IntegracaoRow): McpServerConfig | null {
   };
 }
 
-export async function testarConexaoGranatum(): Promise<{
+export async function testarConexaoGranatum(empresaId: string): Promise<{
   status: "conectado" | "erro";
   tools?: McpTool[] | undefined;
   erro?: string | undefined;
 }> {
-  const integracao = await carregarIntegracao();
+  const integracao = await carregarIntegracao(empresaId);
   const config = integracao ? configMcp(integracao) : null;
 
   const resultado = await (async () => {
@@ -86,17 +91,20 @@ export async function testarConexaoGranatum(): Promise<{
   return resultado;
 }
 
-async function acesso(funcao: string): Promise<{ mcp: McpServerConfig; tool: string } | null> {
-  const integracao = await carregarIntegracao();
+async function acesso(
+  empresaId: string,
+  funcao: string,
+): Promise<{ mcp: McpServerConfig; tool: string } | null> {
+  const integracao = await carregarIntegracao(empresaId);
   const config = integracao ? configMcp(integracao) : null;
   if (!config) return null;
-  const tool = await carregarToolMapping(funcao);
+  const tool = await carregarToolMapping(empresaId, funcao);
   if (!tool) return null;
   return { mcp: config, tool };
 }
 
-async function restFallback(): Promise<{ token: string; urlBase: string }> {
-  const fallback = await carregarFallback();
+async function restFallback(empresaId: string): Promise<{ token: string; urlBase: string }> {
+  const fallback = await carregarFallback(empresaId);
   if (!fallback) {
     throw new Error(
       "Nenhuma tool MCP mapeada e nenhuma credencial de fallback REST configurada para o Granatum.",
@@ -119,12 +127,12 @@ function normalizarConta(c: ContaBruta): ContaGranatum {
   return { id: String(c.id), nome: c.descricao, saldo };
 }
 
-export async function listarContasGranatum(): Promise<ContaGranatum[]> {
-  const via = await acesso("contas");
+export async function listarContasGranatum(empresaId: string): Promise<ContaGranatum[]> {
+  const via = await acesso(empresaId, "contas");
   const brutas = via
     ? await chamarTool<ContaBruta[]>(via.mcp, via.tool, { considerar_inativas: false })
     : await (async () => {
-        const { token, urlBase } = await restFallback();
+        const { token, urlBase } = await restFallback(empresaId);
         const resposta = await fetch(`${urlBase}/contas`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -136,8 +144,11 @@ export async function listarContasGranatum(): Promise<ContaGranatum[]> {
 }
 
 /** Saldo atual (em tempo real) de uma conta específica do Granatum. */
-export async function buscarSaldoContaGranatum(contaId: string): Promise<number> {
-  const contas = await listarContasGranatum();
+export async function buscarSaldoContaGranatum(
+  empresaId: string,
+  contaId: string,
+): Promise<number> {
+  const contas = await listarContasGranatum(empresaId);
   const conta = contas.find((c) => c.id === contaId);
   if (!conta) throw new Error("Conta do Granatum não encontrada — reconfigure em Integrações.");
   return conta.saldo;
@@ -181,12 +192,12 @@ function achatarCategorias(
   return saida;
 }
 
-export async function listarCategoriasGranatum(): Promise<CategoriaGranatum[]> {
-  const via = await acesso("categorias");
+export async function listarCategoriasGranatum(empresaId: string): Promise<CategoriaGranatum[]> {
+  const via = await acesso(empresaId, "categorias");
   const raiz = via
     ? await chamarTool<CategoriaBruta[]>(via.mcp, via.tool, { considerar_inativos: false })
     : await (async () => {
-        const { token, urlBase } = await restFallback();
+        const { token, urlBase } = await restFallback(empresaId);
         const resposta = await fetch(`${urlBase}/categorias`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -221,12 +232,14 @@ function achatarCentros(
   return saida;
 }
 
-export async function listarCentrosCustoGranatum(): Promise<CentroCustoGranatum[]> {
-  const via = await acesso("centros_custo");
+export async function listarCentrosCustoGranatum(
+  empresaId: string,
+): Promise<CentroCustoGranatum[]> {
+  const via = await acesso(empresaId, "centros_custo");
   const raiz = via
     ? await chamarTool<CentroCustoBruto[]>(via.mcp, via.tool, { considerar_inativos: false })
     : await (async () => {
-        const { token, urlBase } = await restFallback();
+        const { token, urlBase } = await restFallback(empresaId);
         const resposta = await fetch(`${urlBase}/centroscusto`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -266,11 +279,12 @@ function normalizarLancamento(l: LancamentoBruto): LancamentoGranatum | null {
 
 /** Lista lançamentos já baixados (pagos/recebidos) da conta configurada, no período. */
 export async function listarLancamentosGranatum(
+  empresaId: string,
   contaId: string,
   dataInicio: string,
   dataFim: string,
 ): Promise<LancamentoGranatum[]> {
-  const via = await acesso("lancamentos");
+  const via = await acesso(empresaId, "lancamentos");
   const resultado: LancamentoGranatum[] = [];
   const limit = 500;
   let start = 0;
@@ -294,7 +308,7 @@ export async function listarLancamentosGranatum(
     return resultado;
   }
 
-  const { token, urlBase } = await restFallback();
+  const { token, urlBase } = await restFallback(empresaId);
   for (;;) {
     const url = new URL(`${urlBase}/lancamentos`);
     url.searchParams.set("conta_id", contaId);
@@ -323,11 +337,12 @@ export async function listarLancamentosGranatum(
  * falha em silêncio (retorna []) para nunca travar uma sugestão de IA.
  */
 export async function buscarLancamentosSimilaresGranatum(
+  empresaId: string,
   contaId: string,
   texto: string,
   limit = 20,
 ): Promise<LancamentoGranatum[]> {
-  const via = await acesso("lancamentos");
+  const via = await acesso(empresaId, "lancamentos");
   if (!via || !texto.trim()) return [];
   try {
     const linhas = await chamarTool<LancamentoBruto[]>(via.mcp, via.tool, {
@@ -342,10 +357,11 @@ export async function buscarLancamentosSimilaresGranatum(
 }
 
 export async function buscarLancamentoPorIdentificadorExterno(
+  empresaId: string,
   contaId: string,
   identificadorExterno: string,
 ): Promise<LancamentoGranatum | null> {
-  const via = await acesso("lancamentos");
+  const via = await acesso(empresaId, "lancamentos");
   if (!via) return null;
   const linhas = await chamarTool<LancamentoBruto[]>(via.mcp, via.tool, {
     conta_id: Number(contaId),
@@ -367,8 +383,11 @@ export type NovoLancamentoGranatum = {
   identificadorExterno: string;
 };
 
-export async function criarLancamentoGranatum(dados: NovoLancamentoGranatum): Promise<string> {
-  const via = await acesso("criar_lancamento");
+export async function criarLancamentoGranatum(
+  empresaId: string,
+  dados: NovoLancamentoGranatum,
+): Promise<string> {
+  const via = await acesso(empresaId, "criar_lancamento");
   const argumentos = {
     descricao: dados.descricao,
     conta_id: Number(dados.contaId),
@@ -387,7 +406,7 @@ export async function criarLancamentoGranatum(dados: NovoLancamentoGranatum): Pr
     return String(criado.id);
   }
 
-  const { token, urlBase } = await restFallback();
+  const { token, urlBase } = await restFallback(empresaId);
   const resposta = await fetch(`${urlBase}/lancamentos`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -406,8 +425,11 @@ export type EdicaoLancamentoGranatum = {
   centroCustoId?: string | null | undefined;
 };
 
-export async function editarLancamentoGranatum(dados: EdicaoLancamentoGranatum): Promise<void> {
-  const via = await acesso("editar_lancamento");
+export async function editarLancamentoGranatum(
+  empresaId: string,
+  dados: EdicaoLancamentoGranatum,
+): Promise<void> {
+  const via = await acesso(empresaId, "editar_lancamento");
   const argumentos = {
     id: Number(dados.id),
     ...(dados.descricao !== undefined ? { descricao: dados.descricao } : {}),
@@ -422,7 +444,7 @@ export async function editarLancamentoGranatum(dados: EdicaoLancamentoGranatum):
     return;
   }
 
-  const { token, urlBase } = await restFallback();
+  const { token, urlBase } = await restFallback(empresaId);
   const resposta = await fetch(`${urlBase}/lancamentos/${dados.id}`, {
     method: "PUT",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -432,16 +454,20 @@ export async function editarLancamentoGranatum(dados: EdicaoLancamentoGranatum):
     throw new Error(`Granatum respondeu HTTP ${resposta.status}: ${await resposta.text()}`);
 }
 
-export async function salvarIntegracaoGranatum(dados: {
-  nome: string;
-  url_mcp: string;
-  transporte: "http" | "sse";
-  token?: string | undefined;
-}): Promise<void> {
-  const existente = await carregarIntegracao();
+export async function salvarIntegracaoGranatum(
+  empresaId: string,
+  dados: {
+    nome: string;
+    url_mcp: string;
+    transporte: "http" | "sse";
+    token?: string | undefined;
+  },
+): Promise<void> {
+  const existente = await carregarIntegracao(empresaId);
   await supabaseAdmin.from("integracoes_mcp").upsert(
     {
       ...(existente ? { id: existente.id } : {}),
+      empresa_id: empresaId,
       provedor: "granatum",
       nome: dados.nome,
       url_mcp: dados.url_mcp,
@@ -450,21 +476,22 @@ export async function salvarIntegracaoGranatum(dados: {
       status: "nao_testado",
       atualizado_em: new Date().toISOString(),
     },
-    { onConflict: "provedor" },
+    { onConflict: "empresa_id,provedor" },
   );
 }
 
-export async function salvarFallbackGranatum(dados: {
-  token: string;
-  urlBase: string;
-}): Promise<void> {
+export async function salvarFallbackGranatum(
+  empresaId: string,
+  dados: { token: string; urlBase: string },
+): Promise<void> {
   await supabaseAdmin.from("credenciais_fallback").upsert(
     {
+      empresa_id: empresaId,
       provedor: "granatum",
       token_cifrado: criptografar(dados.token),
       url_base: dados.urlBase,
       atualizado_em: new Date().toISOString(),
     },
-    { onConflict: "provedor" },
+    { onConflict: "empresa_id,provedor" },
   );
 }

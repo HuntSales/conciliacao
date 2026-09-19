@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireEmpresa } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { mascarar } from "@/lib/crypto.server";
 import type { FuncaoIntegracao, Provedor } from "@/lib/mcp/tipos";
@@ -48,10 +48,11 @@ function detectarFuncao(nomeTool: string): FuncaoIntegracao | null {
   return null;
 }
 
-async function autoDetectarMapeamento(provedor: Provedor, toolNames: string[]) {
+async function autoDetectarMapeamento(empresaId: string, provedor: Provedor, toolNames: string[]) {
   const { data: existentes } = await supabaseAdmin
     .from("tool_mapping")
     .select("funcao")
+    .eq("empresa_id", empresaId)
     .eq("provedor", provedor);
   const jaMapeadas = new Set((existentes ?? []).map((e) => e.funcao));
 
@@ -66,33 +67,39 @@ async function autoDetectarMapeamento(provedor: Provedor, toolNames: string[]) {
   for (const [funcao, tool_name] of detectados) {
     await supabaseAdmin
       .from("tool_mapping")
-      .upsert({ provedor, funcao, tool_name }, { onConflict: "provedor,funcao" });
+      .upsert(
+        { empresa_id: empresaId, provedor, funcao, tool_name },
+        { onConflict: "empresa_id,provedor,funcao" },
+      );
   }
 }
 
 export const listarIntegracoes = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
+  .middleware([requireEmpresa])
+  .handler(async ({ context }) => {
     const { data: integracoes } = await supabaseAdmin
       .from("integracoes_mcp")
       .select(
         "provedor, nome, url_mcp, transporte, token_cifrado, status, ultimo_erro, ultima_checagem",
-      );
+      )
+      .eq("empresa_id", context.empresaId);
     const { data: fallbacks } = await supabaseAdmin
       .from("credenciais_fallback")
-      .select("provedor, token_cifrado, ambiente, url_base");
+      .select("provedor, token_cifrado, ambiente, url_base")
+      .eq("empresa_id", context.empresaId);
     const { data: mapeamentos } = await supabaseAdmin
       .from("tool_mapping")
-      .select("provedor, funcao, tool_name");
+      .select("provedor, funcao, tool_name")
+      .eq("empresa_id", context.empresaId);
     const { data: conta } = await supabaseAdmin
       .from("conta_granatum")
       .select("id, conta_id_granatum, nome")
-      .order("atualizado_em", { ascending: false })
-      .limit(1)
+      .eq("empresa_id", context.empresaId)
       .maybeSingle();
     const { data: ia } = await supabaseAdmin
       .from("integracoes_ia")
       .select("token_cifrado, modelo")
+      .eq("empresa_id", context.empresaId)
       .eq("provedor", "openai")
       .maybeSingle();
 
@@ -127,26 +134,28 @@ const salvarIntegracaoSchema = z.object({
 });
 
 export const salvarIntegracao = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => salvarIntegracaoSchema.parse(d))
-  .handler(async ({ data }) => {
-    if (data.provedor === "asaas") await salvarIntegracaoAsaas(data);
-    else await salvarIntegracaoGranatum(data);
+  .handler(async ({ data, context }) => {
+    if (data.provedor === "asaas") await salvarIntegracaoAsaas(context.empresaId, data);
+    else await salvarIntegracaoGranatum(context.empresaId, data);
     return { ok: true };
   });
 
 const testarConexaoSchema = z.object({ provedor: z.enum(["asaas", "granatum"]) });
 
 export const testarConexao = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => testarConexaoSchema.parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const resultado =
-      data.provedor === "asaas" ? await testarConexaoAsaas() : await testarConexaoGranatum();
+      data.provedor === "asaas"
+        ? await testarConexaoAsaas(context.empresaId)
+        : await testarConexaoGranatum(context.empresaId);
 
     const toolNames = resultado.tools?.map((t) => t.name);
     if (resultado.status === "conectado" && toolNames) {
-      await autoDetectarMapeamento(data.provedor, toolNames);
+      await autoDetectarMapeamento(context.empresaId, data.provedor, toolNames);
     }
 
     return { status: resultado.status, erro: resultado.erro, toolNames };
@@ -166,11 +175,11 @@ const salvarFallbackSchema = z.discriminatedUnion("provedor", [
 ]);
 
 export const salvarFallback = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => salvarFallbackSchema.parse(d))
-  .handler(async ({ data }) => {
-    if (data.provedor === "asaas") await salvarFallbackAsaas(data);
-    else await salvarFallbackGranatum(data);
+  .handler(async ({ data, context }) => {
+    if (data.provedor === "asaas") await salvarFallbackAsaas(context.empresaId, data);
+    else await salvarFallbackGranatum(context.empresaId, data);
     return { ok: true };
   });
 
@@ -190,16 +199,21 @@ const salvarMapeamentoSchema = z.object({
 });
 
 export const salvarMapeamento = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => salvarMapeamentoSchema.parse(d))
-  .handler(async ({ data }) => {
-    await supabaseAdmin.from("tool_mapping").upsert(data, { onConflict: "provedor,funcao" });
+  .handler(async ({ data, context }) => {
+    await supabaseAdmin
+      .from("tool_mapping")
+      .upsert(
+        { ...data, empresa_id: context.empresaId },
+        { onConflict: "empresa_id,provedor,funcao" },
+      );
     return { ok: true };
   });
 
 export const listarContasParaConfiguracao = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => listarContasGranatum());
+  .middleware([requireEmpresa])
+  .handler(async ({ context }) => listarContasGranatum(context.empresaId));
 
 const salvarContaSchema = z.object({
   conta_id_granatum: z.string().min(1),
@@ -207,22 +221,18 @@ const salvarContaSchema = z.object({
 });
 
 export const salvarContaConfigurada = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => salvarContaSchema.parse(d))
-  .handler(async ({ data }) => {
-    const { data: existente } = await supabaseAdmin
-      .from("conta_granatum")
-      .select("id")
-      .order("atualizado_em", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    await supabaseAdmin.from("conta_granatum").upsert({
-      ...(existente ? { id: existente.id } : {}),
-      conta_id_granatum: data.conta_id_granatum,
-      nome: data.nome,
-      atualizado_em: new Date().toISOString(),
-    });
+  .handler(async ({ data, context }) => {
+    await supabaseAdmin.from("conta_granatum").upsert(
+      {
+        empresa_id: context.empresaId,
+        conta_id_granatum: data.conta_id_granatum,
+        nome: data.nome,
+        atualizado_em: new Date().toISOString(),
+      },
+      { onConflict: "empresa_id" },
+    );
     return { ok: true };
   });
 
@@ -232,9 +242,9 @@ const salvarIntegracaoIASchema = z.object({
 });
 
 export const salvarIntegracaoIA = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireEmpresa])
   .inputValidator((d: unknown) => salvarIntegracaoIASchema.parse(d))
-  .handler(async ({ data }) => {
-    await salvarIntegracaoIAInterno(data);
+  .handler(async ({ data, context }) => {
+    await salvarIntegracaoIAInterno(context.empresaId, data);
     return { ok: true };
   });

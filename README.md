@@ -7,6 +7,9 @@ Conciliação bancária automática entre o extrato do Asaas e os lançamentos d
 - TanStack Start (React 19 + Vite + Nitro), build `node-server`
 - Tailwind v4 + Radix/shadcn, seguindo `identidade-visual.md`
 - Supabase (Postgres em nuvem + Auth) — sem banco local
+- Multi-empresa: cada empresa tem suas próprias integrações/conciliações,
+  isoladas por RLS (ver `CLAUDE.md`, seção "Multi-empresa")
+- Resend para o convite de acesso por e-mail
 - Vitest para a engine de conciliação
 
 ## Configuração
@@ -28,6 +31,8 @@ Conciliação bancária automática entre o extrato do Asaas e os lançamentos d
    VITE_SUPABASE_PUBLISHABLE_KEY= # igual ao SUPABASE_PUBLISHABLE_KEY
    VITE_SUPABASE_PROJECT_ID=      # igual ao SUPABASE_PROJECT_ID
    CREDENCIAIS_CIFRA_CHAVE=       # 64 caracteres hex (openssl rand -hex 32)
+   RESEND_API_KEY=                # chave própria deste projeto — nunca reaproveitar de outro
+   EMAIL_REMETENTE=Conciliação <nao-responda@notify.smartapps.ia.br>
    ```
 
 3. **Banco** — as migrations vivem em `supabase/migrations/`. Com o Supabase CLI logado
@@ -39,8 +44,16 @@ Conciliação bancária automática entre o extrato do Asaas e os lançamentos d
    supabase gen types typescript --project-id <ref> > src/integrations/supabase/types.ts
    ```
 
-4. **Usuário de login** — não há cadastro público. Crie o primeiro usuário direto no
-   Supabase Auth (painel do projeto, ou via API Admin com a service role key).
+4. **Primeiro usuário (super_admin)** — não há cadastro público. Crie o primeiro
+   usuário direto no Supabase Auth (painel do projeto, ou via API Admin com a
+   service role key) e faça o primeiro login: ele é promovido a `super_admin`
+   automaticamente (`garantirPrimeiroSuperAdmin`, só funciona enquanto não
+   existir nenhum super_admin ainda). Esse primeiro usuário não fica
+   automaticamente vinculado a nenhuma empresa — `/admin` cadastra _outras_
+   empresas, não a própria; para o próprio acesso à conciliação, insira também
+   uma linha em `empresas` e ligue o usuário a ela via `profiles`/`user_roles`
+   (é exatamente o que a migration `0005_multi_empresa.sql` fez para a Hunt
+   Sales, como referência).
 
 5. **Rodar em desenvolvimento**
 
@@ -53,6 +66,15 @@ Conciliação bancária automática entre o extrato do Asaas e os lançamentos d
    ```sh
    npx vitest run
    ```
+
+## Admin (multi-empresa)
+
+Usuários `super_admin` veem uma aba **Admin** (`/admin`) para cadastrar novas
+empresas: razão social, CNPJ e e-mail de acesso. Ao salvar, um convite é
+enviado por e-mail (Resend) com um link para a empresa definir a senha e
+entrar — cada empresa só enxerga as próprias integrações, conciliações e
+histórico (isolado por RLS). Sem `RESEND_API_KEY` configurada, a empresa é
+criada mas o convite falha (avisa na tela); reenvie depois em "Reenviar convite".
 
 ## Integrações (feito na tela, não em `.env`)
 

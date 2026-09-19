@@ -102,3 +102,32 @@ export const requireSupabaseAuth = createMiddleware({ type: "function" }).server
     });
   },
 );
+
+/** Já depende de `requireSupabaseAuth` — não precisa listar os dois no array. */
+export const requireEmpresa = createMiddleware({ type: "function" })
+  .middleware([requireSupabaseAuth])
+  .server(async ({ next, context }) => {
+    const { data: perfil } = await context.supabase
+      .from("profiles")
+      .select("empresa_id")
+      .eq("id", context.userId)
+      .maybeSingle();
+    if (!perfil?.empresa_id) {
+      throw new Error("Usuário sem empresa vinculada. Fale com o administrador.");
+    }
+    return next({ context: { empresaId: perfil.empresa_id as string } });
+  });
+
+/** Já depende de `requireSupabaseAuth` — não precisa listar os dois no array. */
+export const requireSuperAdmin = createMiddleware({ type: "function" })
+  .middleware([requireSupabaseAuth])
+  .server(async ({ next, context }) => {
+    const { data: ehSuperAdmin } = await context.supabase.rpc("has_role", {
+      _user_id: context.userId,
+      _role: "super_admin",
+    });
+    if (!ehSuperAdmin) {
+      throw new Error("Acesso negado: apenas administradores da plataforma.");
+    }
+    return next();
+  });

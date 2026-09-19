@@ -9,7 +9,10 @@ as coisas são como são, onde estão hospedadas, e o que já aconteceu.
 Sistema de conciliação bancária entre o extrato Asaas (conta bancária) e os
 lançamentos financeiros do Granatum, com ligação automática por valor+data,
 edição/criação de lançamentos no Granatum sem sair da tela, e histórico de tudo.
-Dono: William. Uso interno (não multi-tenant).
+Dono/plataforma: William. **Multi-empresa desde 2026-09-18**: William (via
+`/admin`) cadastra outras empresas (CNPJ, razão social, e-mail de acesso), cada
+uma com suas próprias integrações/conciliações, isoladas por RLS. A Hunt Sales
+é a primeira empresa (o ambiente que já existia antes da mudança).
 
 ## Histórico
 
@@ -31,6 +34,20 @@ Resultado do teste real (período 2026-09-01 a 2026-09-18): 17 lançamentos no
 extrato Asaas, 13 lançamentos no Granatum, **13 pares batidos automaticamente**
 (tolerância de 1 dia), 4 itens do Asaas corretamente sem par (taxas ainda não
 lançadas no Granatum).
+
+**Multi-empresa (2026-09-18/19)**: pedido do William pra transformar o app
+single-tenant (só Hunt Sales) em multi-empresa — um super_admin cadastra outras
+empresas em `/admin` (CNPJ, razão social, e-mail de acesso) e um convite sai por
+e-mail (Resend) pra elas definirem senha e entrarem. Arquitetura portada quase
+1:1 do padrão já validado em produção no Multi MCPs (`empresas`/`profiles`/
+`user_roles`/`has_role()`/`current_empresa_id()`/trigger `handle_new_user`, ver
+`CLAUDE.md`). Migration `0005_multi_empresa.sql` fez backfill automático:
+criou a empresa "Hunt Sales" e migrou todos os dados de negócio já existentes
+(integrações, conta, tool_mapping, pares, log, IA) pra ela, e deu ao usuário
+`william@huntsales.com.br` os dois papéis (`empresa_admin` da Hunt Sales +
+`super_admin` da plataforma). Validado com dados reais pós-migração (mesmos
+números do teste anterior, saldo Asaas/Granatum batendo, isolamento entre
+empresas confirmado por query direta) antes do deploy.
 
 ## Infraestrutura
 
@@ -154,6 +171,13 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     Granatum com a mesma categoria e centro de custo (cada um mantendo sua
     própria descrição/valor/data). `criarLoteAPartirDoAsaas` roda sequencial,
     item por item nunca aborta no meio por causa de uma falha isolada.
+13. **Multi-empresa (2026-09-18/19)**: ver `CLAUDE.md` (seção "Multi-empresa")
+    pra arquitetura completa. Ponto de atenção pra quem mexer no código: toda
+    função em `asaas.server.ts`/`granatum.server.ts`/`openai.server.ts` usa
+    `supabaseAdmin` (bypassa RLS) e recebe `empresaId` manualmente — esquecer de
+    filtrar por `empresa_id` numa query nova vaza dado entre empresas, a
+    proteção do banco (RLS) não cobre esse caminho porque ele nem passa pela
+    RLS.
 
 ## Estado atual e pendências conhecidas
 
@@ -167,3 +191,10 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
 - Sugestão por IA ainda não foi testada com uma chave OpenAI real — só
   typecheck/build. Vale configurar a chave em Integrações e testar na prática
   antes de confiar no pré-preenchimento em produção.
+- **`RESEND_API_KEY` ainda não configurada no servidor** — o William vai gerar
+  uma chave própria deste projeto no painel do Resend e passar. Até lá,
+  `criarEmpresa` cria a empresa normalmente mas o convite falha (erro tratado,
+  não quebra o cadastro — `aviso_convite` avisa na tela) e pode ser reenviado
+  depois em "Reenviar convite" assim que a chave estiver no `.env` do servidor.
+  Domínio de envio já decidido: `notify.smartapps.ia.br` (mesmo já verificado
+  pelo Multi MCPs).

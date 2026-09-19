@@ -44,20 +44,64 @@ convenções compartilhadas, considere se a mudança também deveria voltar pro
 Multi MCPs.
 
 **Diferença deliberada**: banco 100% em nuvem (Supabase Postgres), **sem** SQLite/banco
-local — pedido explícito do usuário. Login simples via Supabase Auth (cadastro
-público desabilitado, usuário criado via Admin API), não multi-tenant (RLS só exige
-`auth.role() = 'authenticated'`, não há `empresa_id`).
+local — pedido explícito do usuário.
+
+**Multi-empresa desde 2026-09-18** (mudança grande, ver `memoria.md`): cada empresa
+tem suas próprias integrações/conta/histórico, isolados por RLS. Um super_admin
+cadastra empresas em `/admin` e o convite de acesso sai por e-mail (Resend).
 
 ## Arquitetura
 
+### Multi-empresa (`empresas`, `profiles`, `user_roles`, `has_role()`)
+
+Todo dado de negócio (`integracoes_mcp`, `credenciais_fallback`, `conta_granatum`,
+`tool_mapping`, `pares_conciliacao`, `log_alteracoes_granatum`, `integracoes_ia`)
+tem uma coluna `empresa_id not null`, com unique constraints e RLS escopados por
+empresa (`current_empresa_id()`, função `SECURITY DEFINER` que lê `profiles`,
+mesmo padrão do Multi MCPs). **Toda função em `asaas.server.ts`/`granatum.server.ts`/
+`openai.server.ts` recebe `empresaId` como primeiro argumento** — essas funções
+usam `supabaseAdmin` (bypassa RLS), então o filtro `.eq("empresa_id", ...)` é
+manual em cada query, não automático. Ao adicionar uma função nova nesses
+arquivos, sempre receber e propagar `empresaId` — esquecer o filtro vaza dado de
+uma empresa para o cliente de outra.
+
+Duas middlewares novas em `auth-middleware.ts`, cada uma já encadeando
+`requireSupabaseAuth` internamente (não precisa listar as duas):
+
+- `requireEmpresa` — resolve `context.empresaId` a partir de `profiles`; toda
+  server function de negócio usa só essa.
+- `requireSuperAdmin` — checa `has_role(..., 'super_admin')` via RPC; usada só
+  em `empresas.functions.ts` (rotas `/admin`).
+
+Um usuário pode ter as duas naturezas ao mesmo tempo — ex.: o William é
+`empresa_admin` da Hunt Sales **e** `super_admin` da plataforma. O nav mostra a
+aba "Admin" condicionalmente (`useSuperAdmin()` hook + `montarNav()` em
+`components/corp/nav-padrao.ts`).
+
+**Bootstrap do primeiro admin**: `garantirPrimeiroSuperAdmin` (chamada em
+`auth.tsx` logo após login) promove o usuário atual a `super_admin` só se ainda
+não existir nenhum na plataforma — evita problema de ovo-e-galinha sem precisar
+mexer direto no banco.
+
+**Convite de empresa** (`criarEmpresa` em `empresas.functions.ts`): cria a linha
+em `empresas`, então `enviarLinkAcesso` (`acesso-email.server.ts`) gera um link
+via `supabaseAdmin.auth.admin.generateLink({type:"invite", options:{data:{...,
+empresa_id}}})` e manda pelo Resend (`email.server.ts`). O `handle_new_user`
+trigger lê esses metadados no INSERT em `auth.users` (que já acontece dentro do
+próprio `generateLink`, antes mesmo do usuário clicar) e popula `profiles`/
+`user_roles` automaticamente. O link aponta pra `/redefinir-senha` (rota nova,
+`verifyOtp` + `updateUser({password})`, mesmo componente serve invite e recovery).
+
 ### Banco (Supabase)
 
-Migrations em `supabase/migrations/`. Tabelas: `integracoes_mcp` (config MCP por
-provedor), `credenciais_fallback` (token REST direto + `ambiente`/`url_base`),
-`conta_granatum` (conta que representa o Asaas — linha única, sempre a mais
-recente por `atualizado_em`), `tool_mapping` (função → nome da tool detectada),
-`pares_conciliacao` (`asaas_id`/`granatum_id` únicos — garante 1:1 no banco, não só
-na engine), `log_alteracoes_granatum` (antes/depois de cada edição).
+Migrations em `supabase/migrations/`. Tabelas de negócio: `integracoes_mcp`
+(config MCP por provedor, agora `unique(empresa_id, provedor)`),
+`credenciais_fallback` (token REST direto + `ambiente`/`url_base`),
+`conta_granatum` (conta que representa o Asaas — `unique(empresa_id)`, uma linha
+por empresa), `tool_mapping` (função → nome da tool detectada), `pares_conciliacao`
+(`unique(empresa_id, asaas_id)` e `unique(empresa_id, granatum_id)` — os ids do
+Asaas/Granatum só são únicos dentro da conta de cada empresa, não globalmente),
+`log_alteracoes_granatum` (antes/depois de cada edição).
 
 Depois de qualquer migration nova: `supabase db push` (projeto já linkado) e
 `supabase gen types typescript --project-id hqtfxurhvwyvqpxeoyuj > src/integrations/supabase/types.ts`.
@@ -101,8 +145,9 @@ desempate não é claro. 1:1 sempre garantido, inclusive entre sugestões.
 
 ### Server functions (`src/lib/*.functions.ts`)
 
-Padrão `createServerFn` + `.middleware([requireSupabaseAuth])` do TanStack Start
-(mesmo de `src/integrations/supabase/auth-middleware.ts`, copiado do Multi MCPs).
+Padrão `createServerFn` + `.middleware([requireEmpresa])` do TanStack Start (ou
+`.middleware([requireSuperAdmin])` nas rotas de `/admin`) — ver seção
+"Multi-empresa" acima pra como isso propaga `empresaId`.
 `conciliacao.functions.ts` é o maior: busca extrato+lançamentos, cruza com pares já
 gravados, roda a engine só no que sobra, persiste automáticos na hora, devolve
 sugestões sem persistir (ficam só na resposta — "rejeitar" no frontend é só estado
