@@ -90,6 +90,16 @@ function ConciliacaoPage() {
 
   const invalidarBusca = () => busca.mutate();
 
+  const buscarNovamente = () => {
+    // Uma nova busca não deve carregar seleção/vínculo pendente da busca
+    // anterior — senão os cards somem os botões normais achando que ainda tem
+    // uma ligação em andamento, e não fica óbvio por quê (o aviso fica lá em
+    // cima, fácil de não notar depois de rolar a tela).
+    setOrigemVinculo(null);
+    setSelecionadosLote(new Set());
+    busca.mutate();
+  };
+
   const confirmar = useMutation({
     mutationFn: confirmarPar,
     onSuccess: () => {
@@ -183,7 +193,7 @@ function ConciliacaoPage() {
         <FiltroPeriodo
           periodo={periodo}
           onMudar={setPeriodo}
-          onBuscar={() => busca.mutate()}
+          onBuscar={buscarNovamente}
           buscando={busca.isPending}
         />
 
@@ -222,7 +232,7 @@ function ConciliacaoPage() {
             </div>
 
             {origemVinculo ? (
-              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+              <div className="corp-card fade-up sticky top-2 z-20 flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4 shadow-glow">
                 <p className="text-sm text-body">
                   Escolha o lançamento do{" "}
                   <strong className="text-foreground">

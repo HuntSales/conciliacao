@@ -197,6 +197,17 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     variável entre aspas troca um problema por outro (aspas viram parte
     literal do valor). Solução: deixar essa variável de fora do `.env` e usar
     só o default hardcoded no código quando o valor não for um token simples.
+16. **"Sumiu" o checkbox/botão de ligar (2026-09-19)**: reportado pelo William
+    depois de mexer no fluxo de vínculo manual. Causa: `origemVinculo` (estado
+    de "modo de vínculo" ativo) só era limpo ao completar ou cancelar
+    explicitamente uma ligação — clicar em "Ligar" e depois só rolar a tela
+    ou fazer outra busca deixava esse estado preso, escondendo o checkbox de
+    lote e trocando os botões normais em todos os cards, com o único aviso
+    disso sendo a faixa lá no topo (fácil de não notar depois de rolar).
+    Corrigido em duas frentes: `buscarNovamente` (clique em "Buscar
+    lançamentos") agora limpa `origemVinculo`/`selecionadosLote` antes de
+    buscar de novo, e a faixa de aviso ficou `sticky` no topo da tela em vez
+    de rolar junto com a lista.
 
 ## Estado atual e pendências conhecidas
 
