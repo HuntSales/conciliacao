@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { Layers, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { CardAsaas, type ModoVinculo } from "@/components/conciliacao/CardAsaas"
 import { CardGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormCriarLancamento } from "@/components/conciliacao/FormCriarLancamento";
 import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
+import { FormCriarLote } from "@/components/conciliacao/FormCriarLote";
 import {
   buscarLancamentos,
   confirmarPar,
@@ -74,6 +75,8 @@ function ConciliacaoPage() {
     granatum: ItemGranatum;
   } | null>(null);
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
+  const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
+  const [loteAberto, setLoteAberto] = useState(false);
 
   const cadastros = useQuery({
     queryKey: ["cadastros"],
@@ -155,6 +158,17 @@ function ConciliacaoPage() {
     setOrigemVinculo(null);
   };
 
+  const alternarSelecaoLote = (asaasId: string, marcado: boolean) => {
+    setSelecionadosLote((prev) => {
+      const novo = new Set(prev);
+      if (marcado) novo.add(asaasId);
+      else novo.delete(asaasId);
+      return novo;
+    });
+  };
+
+  const itensLote = (dados?.asaas ?? []).filter((a) => selecionadosLote.has(a.id));
+
   return (
     <Shell itens={NAV} contexto="Conciliação">
       <TituloPagina
@@ -226,6 +240,28 @@ function ConciliacaoPage() {
               </div>
             ) : null}
 
+            {selecionadosLote.size > 0 ? (
+              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+                <p className="text-sm text-body">
+                  <strong className="text-foreground">{selecionadosLote.size}</strong> lançamento(s)
+                  do Asaas selecionado(s) pra criar no Granatum com a mesma categoria e centro de
+                  custo.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghostCorp"
+                    size="sm"
+                    onClick={() => setSelecionadosLote(new Set())}
+                  >
+                    <X /> Limpar seleção
+                  </Button>
+                  <Button variant="corp" size="sm" onClick={() => setLoteAberto(true)}>
+                    <Layers /> Criar em lote
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {linhasFiltradas.length === 0 ? (
               <EmptyState
                 icone={RefreshCw}
@@ -244,6 +280,12 @@ function ConciliacaoPage() {
                         <CardAsaas
                           item={linha.asaas}
                           modoVinculo={modoParaAsaas(linha.asaas)}
+                          selecionadoLote={selecionadosLote.has(linha.asaas.id)}
+                          onSelecionarLote={
+                            origemVinculo
+                              ? undefined
+                              : (m) => alternarSelecaoLote(linha.asaas!.id, m)
+                          }
                           onCriarNoGranatum={() => setItemParaCriar(linha.asaas)}
                           onIniciarVinculo={() =>
                             setOrigemVinculo({ lado: "asaas", item: linha.asaas! })
@@ -358,6 +400,20 @@ function ConciliacaoPage() {
         onFechar={() => setParEmDialogo(null)}
         onConciliado={() => {
           setParEmDialogo(null);
+          invalidarBusca();
+        }}
+      />
+
+      <FormCriarLote
+        key={[...selecionadosLote].sort().join(",")}
+        itens={itensLote}
+        categorias={cadastros.data?.categorias ?? []}
+        centros={cadastros.data?.centrosCusto ?? []}
+        aberto={loteAberto}
+        onFechar={() => setLoteAberto(false)}
+        onCriado={() => {
+          setLoteAberto(false);
+          setSelecionadosLote(new Set());
           invalidarBusca();
         }}
       />

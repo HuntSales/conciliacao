@@ -126,6 +126,22 @@ categoria). Um único botão "Salvar e conciliar" aplica a edição no Granatum
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 (ver seção de IA abaixo) mesmo quando o usuário só confirma sem editar nada.
 
+### Criação em lote (`FormCriarLote.tsx`, `criarLoteAPartirDoAsaas`)
+
+Checkbox em cada card do Asaas sem par (independente do `modoVinculo` — some
+enquanto uma ligação está em andamento, pra não confundir os dois modos ao
+mesmo tempo) alimenta `selecionadosLote` em `conciliacao.tsx`. Com 1+
+selecionado(s), aparece uma faixa com "Criar em lote", que abre
+`FormCriarLote`: **uma** categoria e **um** centro de custo aplicados a todos,
+mas cada item mantém sua própria descrição/valor/data. Categoria filtrada por
+tipo comum entre os selecionados — se misturar receita e despesa, só mostra
+categorias "mista" (não dá pra aplicar uma categoria de tipo fixo nos dois
+sentidos ao mesmo tempo). `criarLoteAPartirDoAsaas` reaproveita o mesmo núcleo
+(`criarUmLancamentoAPartirDoAsaas`) da criação individual, num loop
+sequencial que nunca aborta no meio — cada item tem seu próprio
+sucesso/falha no retorno (`ResultadoLote[]`), então um item já conciliado por
+outra pessoa nesse meio tempo não derruba o resto do lote.
+
 ### Sugestão de categoria/centro por IA (`src/lib/ia/openai.server.ts`)
 
 Ao abrir "Criar no Granatum" para um item do Asaas sem par, `sugerirParaLancamento`

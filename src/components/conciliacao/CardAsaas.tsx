@@ -1,5 +1,6 @@
 import { Link2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import type { ItemAsaas } from "@/lib/conciliacao.functions";
 
@@ -18,6 +19,8 @@ export type ModoVinculo = "nenhum" | "origem" | "alvo";
 export function CardAsaas({
   item,
   modoVinculo,
+  selecionadoLote,
+  onSelecionarLote,
   onCriarNoGranatum,
   onIniciarVinculo,
   onCancelarVinculo,
@@ -25,6 +28,8 @@ export function CardAsaas({
 }: {
   item: ItemAsaas;
   modoVinculo: ModoVinculo;
+  selecionadoLote?: boolean | undefined;
+  onSelecionarLote?: ((marcado: boolean) => void) | undefined;
   onCriarNoGranatum: () => void;
   onIniciarVinculo: () => void;
   onCancelarVinculo: () => void;
@@ -39,9 +44,18 @@ export function CardAsaas({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
-          <p className="mt-0.5 text-sm text-body">{item.descricao}</p>
+        <div className="flex items-start gap-3">
+          {!item.tipoPar && onSelecionarLote ? (
+            <Checkbox
+              checked={selecionadoLote ?? false}
+              onCheckedChange={(v) => onSelecionarLote(Boolean(v))}
+              className="mt-1"
+            />
+          ) : null}
+          <div>
+            <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
+            <p className="mt-0.5 text-sm text-body">{item.descricao}</p>
+          </div>
         </div>
         {badge(item.tipoPar)}
       </div>

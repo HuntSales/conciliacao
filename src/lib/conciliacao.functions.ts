@@ -281,7 +281,7 @@ export const editarLancamento = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-const criarASchema = z.object({
+const itemParaCriarSchema = z.object({
   asaasId: z.string(),
   data: z.string(),
   descricao: z.string().min(1),
@@ -290,51 +290,113 @@ const criarASchema = z.object({
   centroCustoId: z.string().nullable().optional(),
 });
 
+type ItemParaCriar = z.infer<typeof itemParaCriarSchema>;
+
+/** Núcleo compartilhado entre a criação individual e a criação em lote. */
+async function criarUmLancamentoAPartirDoAsaas(
+  item: ItemParaCriar,
+  usuarioId: string | undefined,
+): Promise<string> {
+  const { data: parExistente } = await supabaseAdmin
+    .from("pares_conciliacao")
+    .select("granatum_id")
+    .eq("asaas_id", item.asaasId)
+    .maybeSingle();
+  if (parExistente) {
+    throw new Error("Este lançamento do Asaas já está conciliado com um lançamento do Granatum.");
+  }
+
+  const { data: contaRow } = await supabaseAdmin
+    .from("conta_granatum")
+    .select("conta_id_granatum")
+    .order("atualizado_em", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!contaRow?.conta_id_granatum)
+    throw new Error("Configure a conta do Granatum em Integrações.");
+
+  const granatumId = await criarLancamentoGranatum({
+    descricao: item.descricao,
+    contaId: contaRow.conta_id_granatum,
+    categoriaId: item.categoriaId,
+    centroCustoId: item.centroCustoId ?? null,
+    valor: item.valor,
+    data: item.data,
+    identificadorExterno: item.asaasId,
+  });
+
+  await supabaseAdmin.from("pares_conciliacao").insert({
+    asaas_id: item.asaasId,
+    granatum_id: granatumId,
+    data: item.data,
+    valor: item.valor,
+    tipo: "manual",
+    usuario_id: usuarioId ?? null,
+    descricao: item.descricao,
+    categoria_id: item.categoriaId,
+    centro_custo_id: item.centroCustoId ?? null,
+  });
+
+  return granatumId;
+}
+
 export const criarLancamentoAPartirDoAsaas = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => criarASchema.parse(d))
+  .inputValidator((d: unknown) => itemParaCriarSchema.parse(d))
   .handler(async ({ data, context }) => {
-    const { data: parExistente } = await supabaseAdmin
-      .from("pares_conciliacao")
-      .select("granatum_id")
-      .eq("asaas_id", data.asaasId)
-      .maybeSingle();
-    if (parExistente) {
-      throw new Error("Este lançamento do Asaas já está conciliado com um lançamento do Granatum.");
-    }
-
-    const { data: contaRow } = await supabaseAdmin
-      .from("conta_granatum")
-      .select("conta_id_granatum")
-      .order("atualizado_em", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!contaRow?.conta_id_granatum)
-      throw new Error("Configure a conta do Granatum em Integrações.");
-
-    const granatumId = await criarLancamentoGranatum({
-      descricao: data.descricao,
-      contaId: contaRow.conta_id_granatum,
-      categoriaId: data.categoriaId,
-      centroCustoId: data.centroCustoId ?? null,
-      valor: data.valor,
-      data: data.data,
-      identificadorExterno: data.asaasId,
-    });
-
-    await supabaseAdmin.from("pares_conciliacao").insert({
-      asaas_id: data.asaasId,
-      granatum_id: granatumId,
-      data: data.data,
-      valor: data.valor,
-      tipo: "manual",
-      usuario_id: context.userId,
-      descricao: data.descricao,
-      categoria_id: data.categoriaId,
-      centro_custo_id: data.centroCustoId ?? null,
-    });
-
+    const granatumId = await criarUmLancamentoAPartirDoAsaas(data, context.userId);
     return { ok: true, granatumId };
+  });
+
+const criarLoteSchema = z.object({
+  itens: z
+    .array(
+      z.object({
+        asaasId: z.string(),
+        data: z.string(),
+        descricao: z.string().min(1),
+        valor: z.number(),
+      }),
+    )
+    .min(1),
+  categoriaId: z.string(),
+  centroCustoId: z.string().nullable().optional(),
+});
+
+export type ResultadoLote = {
+  asaasId: string;
+  ok: boolean;
+  erro?: string;
+};
+
+export const criarLoteAPartirDoAsaas = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => criarLoteSchema.parse(d))
+  .handler(async ({ data, context }): Promise<ResultadoLote[]> => {
+    const resultados: ResultadoLote[] = [];
+    for (const item of data.itens) {
+      try {
+        await criarUmLancamentoAPartirDoAsaas(
+          {
+            asaasId: item.asaasId,
+            data: item.data,
+            descricao: item.descricao,
+            valor: item.valor,
+            categoriaId: data.categoriaId,
+            centroCustoId: data.centroCustoId ?? null,
+          },
+          context.userId,
+        );
+        resultados.push({ asaasId: item.asaasId, ok: true });
+      } catch (erro) {
+        resultados.push({
+          asaasId: item.asaasId,
+          ok: false,
+          erro: erro instanceof Error ? erro.message : "Falha desconhecida",
+        });
+      }
+    }
+    return resultados;
   });
 
 const sugerirSchema = z.object({

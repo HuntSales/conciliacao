@@ -149,6 +149,11 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     lado vira alvo destacado com botão "Ligar aqui", clicar nele abre o mesmo
     `FormConciliarManual` de antes. Ver `CLAUDE.md` (`modoVinculo`) pros
     detalhes técnicos.
+12. **Criação em lote (2026-09-18)**: item do briefing original que ainda
+    faltava — selecionar vários lançamentos do Asaas sem par e criar todos no
+    Granatum com a mesma categoria e centro de custo (cada um mantendo sua
+    própria descrição/valor/data). `criarLoteAPartirDoAsaas` roda sequencial,
+    item por item nunca aborta no meio por causa de uma falha isolada.
 
 ## Estado atual e pendências conhecidas
 
