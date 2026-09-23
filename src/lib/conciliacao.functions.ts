@@ -19,7 +19,11 @@ import {
   type CandidatoGranatum,
 } from "@/lib/matching";
 import { folhas } from "@/lib/hierarquia";
-import { sugerirCategorizacao, iaConfigurada, type ExemploHistorico } from "@/lib/ia/openai.server";
+import {
+  sugerirCategorizacaoLote,
+  iaConfigurada,
+  type ExemploHistorico,
+} from "@/lib/ia/openai.server";
 import type { LancamentoAsaas, LancamentoGranatum } from "@/lib/mcp/tipos";
 
 async function contaConfigurada(empresaId: string): Promise<string> {
@@ -412,11 +416,14 @@ export const criarLoteAPartirDoAsaas = createServerFn({ method: "POST" })
     return resultados;
   });
 
-const sugerirSchema = z.object({
+const itemSugestaoSchema = z.object({
+  chave: z.string(),
   descricao: z.string().min(1),
   valor: z.number(),
   tipo: z.enum(["receita", "despesa"]),
 });
+
+type ItemSugestao = z.infer<typeof itemSugestaoSchema>;
 
 export type SugestaoParaLancamento = {
   categoriaId: string | null;
@@ -424,32 +431,76 @@ export type SugestaoParaLancamento = {
   origem: "ia" | "historico" | "nenhuma";
 };
 
-export const sugerirParaLancamento = createServerFn({ method: "POST" })
-  .middleware([requireEmpresa])
-  .inputValidator((d: unknown) => sugerirSchema.parse(d))
-  .handler(async ({ data, context }): Promise<SugestaoParaLancamento> => {
-    const empresaId = context.empresaId;
-    const [categorias, centros] = await Promise.all([
-      listarCategoriasGranatum(empresaId),
-      listarCentrosCustoGranatum(empresaId),
-    ]);
-    const categoriasFolha = folhas(
-      categorias.filter((c) => c.tipo === data.tipo || c.tipo === "mista"),
-    );
-    const centrosFolha = folhas(centros);
-    const idsCategoriaValidos = new Set(categoriasFolha.map((c) => c.id));
-    const idsCentroValidos = new Set(centrosFolha.map((c) => c.id));
+/**
+ * A partir desta similaridade (Jaccard sobre tokens) o histórico é confiável
+ * o bastante pra sugerir sozinho, sem gastar token com a IA.
+ */
+const LIMIAR_HISTORICO_FORTE = 0.5;
+/** Sem IA configurada, aceita um histórico mais distante que isso. */
+const LIMIAR_HISTORICO_FRACO = 0.15;
+/** Janela do histórico do próprio Granatum carregado de uma vez (sem tokens). */
+const DIAS_HISTORICO_GRANATUM = 180;
 
+function chaveDescricao(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
+/**
+ * Sugere categoria/centro para vários lançamentos, na ordem mais barata
+ * primeiro: (1) histórico local + últimos meses do Granatum, carregados uma
+ * vez só pra todo o lote; (2) busca textual no Granatum só pros que ainda não
+ * tiveram um parecido forte; (3) IA, numa única chamada agrupada, só pro que
+ * sobrou. Descrições repetidas no lote são resolvidas uma vez só.
+ */
+async function sugerirVarios(
+  empresaId: string,
+  itens: ItemSugestao[],
+): Promise<Record<string, SugestaoParaLancamento>> {
+  const hoje = new Date();
+  const inicioHistorico = new Date(hoje.getTime() - DIAS_HISTORICO_GRANATUM * 86_400_000);
+  const contaId = await contaConfigurada(empresaId).catch(() => null);
+
+  const [categorias, centros, paresHistorico, lancamentosRecentes] = await Promise.all([
+    listarCategoriasGranatum(empresaId),
+    listarCentrosCustoGranatum(empresaId),
     // Histórico local: o que este app já lançou/editou no Granatum.
-    const { data: paresHistorico } = await supabaseAdmin
+    supabaseAdmin
       .from("pares_conciliacao")
       .select("descricao, categoria_id, centro_custo_id")
       .eq("empresa_id", empresaId)
       .not("categoria_id", "is", null)
       .order("criado_em", { ascending: false })
-      .limit(300);
+      .limit(1000)
+      .then((r) => r.data ?? []),
+    // Histórico do próprio Granatum (inclusive o que foi lançado fora do app),
+    // best-effort — nunca trava a sugestão se a busca falhar.
+    contaId
+      ? listarLancamentosGranatum(
+          empresaId,
+          contaId,
+          inicioHistorico.toISOString().slice(0, 10),
+          hoje.toISOString().slice(0, 10),
+        ).catch(() => [])
+      : Promise.resolve([]),
+  ]);
 
-    const historicoLocal: ExemploHistorico[] = (paresHistorico ?? [])
+  const centrosFolha = folhas(centros);
+  const idsCentroValidos = new Set(centrosFolha.map((c) => c.id));
+  const categoriasPorTipo = {
+    receita: folhas(categorias.filter((c) => c.tipo === "receita" || c.tipo === "mista")),
+    despesa: folhas(categorias.filter((c) => c.tipo === "despesa" || c.tipo === "mista")),
+  };
+  const idsCategoriaPorTipo = {
+    receita: new Set(categoriasPorTipo.receita.map((c) => c.id)),
+    despesa: new Set(categoriasPorTipo.despesa.map((c) => c.id)),
+  };
+
+  const historicoBase: ExemploHistorico[] = [
+    ...paresHistorico
       .filter(
         (p): p is { descricao: string; categoria_id: string; centro_custo_id: string | null } =>
           Boolean(p.descricao && p.categoria_id),
@@ -458,68 +509,139 @@ export const sugerirParaLancamento = createServerFn({ method: "POST" })
         descricao: p.descricao,
         categoriaId: p.categoria_id,
         centroCustoId: p.centro_custo_id,
-      }));
+      })),
+    ...lancamentosRecentes
+      .filter((l) => l.categoriaId)
+      .map((l) => ({
+        descricao: l.descricao,
+        categoriaId: l.categoriaId as string,
+        centroCustoId: l.centroCustoId,
+      })),
+  ];
 
-    // Histórico "ao vivo" no próprio Granatum (busca textual pela API deles),
-    // best-effort — nunca trava a sugestão se a conta não estiver configurada
-    // ou a busca falhar.
-    let historicoRemoto: ExemploHistorico[] = [];
-    try {
-      const contaId = await contaConfigurada(empresaId);
-      const encontrados = await buscarLancamentosSimilaresGranatum(
-        empresaId,
-        contaId,
-        data.descricao,
-        20,
-      );
-      historicoRemoto = encontrados
-        .filter((l) => l.categoriaId)
-        .map((l) => ({
-          descricao: l.descricao,
-          categoriaId: l.categoriaId as string,
-          centroCustoId: l.centroCustoId,
-        }));
-    } catch {
-      /* conta não configurada ainda — segue só com o histórico local */
-    }
-
-    const historicoCombinado = [...historicoLocal, ...historicoRemoto]
-      .filter((h) => idsCategoriaValidos.has(h.categoriaId))
-      .map((h) => ({ ...h, score: similaridadeDescricao(h.descricao, data.descricao) }))
+  const ranquear = (item: ItemSugestao, historico: ExemploHistorico[]) =>
+    historico
+      .filter((h) => idsCategoriaPorTipo[item.tipo].has(h.categoriaId))
+      .map((h) => ({ ...h, score: similaridadeDescricao(h.descricao, item.descricao) }))
+      .filter((h) => h.score > 0)
       .sort((a, b) => b.score - a.score);
 
-    if (await iaConfigurada(empresaId)) {
-      const sugestao = await sugerirCategorizacao(empresaId, {
-        descricao: data.descricao,
-        valor: data.valor,
-        tipo: data.tipo,
-        categorias: categoriasFolha.map((c) => ({ id: c.id, caminho: c.caminho })),
-        centros: centrosFolha.map((c) => ({ id: c.id, caminho: c.caminho })),
-        historico: historicoCombinado,
-      });
-      if (sugestao) {
-        return {
-          categoriaId: sugestao.categoriaId,
-          centroCustoId:
-            sugestao.centroCustoId && idsCentroValidos.has(sugestao.centroCustoId)
-              ? sugestao.centroCustoId
-              : null,
-          origem: "ia",
-        };
-      }
-    }
-
-    const melhor = historicoCombinado[0];
-    if (melhor && melhor.score > 0.15) {
-      return {
-        categoriaId: melhor.categoriaId,
-        centroCustoId:
-          melhor.centroCustoId && idsCentroValidos.has(melhor.centroCustoId)
-            ? melhor.centroCustoId
-            : null,
-        origem: "historico",
-      };
-    }
-
-    return { categoriaId: null, centroCustoId: null, origem: "nenhuma" };
+  const deHistorico = (h: ExemploHistorico): SugestaoParaLancamento => ({
+    categoriaId: h.categoriaId,
+    centroCustoId:
+      h.centroCustoId && idsCentroValidos.has(h.centroCustoId) ? h.centroCustoId : null,
+    origem: "historico",
   });
+
+  // Um representante por descrição+tipo — itens repetidos herdam a resposta.
+  const grupos = new Map<string, { item: ItemSugestao; chaves: string[] }>();
+  for (const item of itens) {
+    const k = `${item.tipo}|${chaveDescricao(item.descricao)}`;
+    const g = grupos.get(k);
+    if (g) g.chaves.push(item.chave);
+    else grupos.set(k, { item, chaves: [item.chave] });
+  }
+
+  const resolvidos = new Map<string, SugestaoParaLancamento>();
+  const ranking = new Map<string, ReturnType<typeof ranquear>>();
+
+  // (1) Histórico já carregado.
+  for (const [k, { item }] of grupos) {
+    const r = ranquear(item, historicoBase);
+    ranking.set(k, r);
+    if (r[0] && r[0].score >= LIMIAR_HISTORICO_FORTE) resolvidos.set(k, deHistorico(r[0]));
+  }
+
+  // (2) Busca textual no Granatum (sem tokens), só pros que ainda faltam —
+  // pega lançamentos mais antigos que a janela carregada acima.
+  if (contaId) {
+    const pendentes = [...grupos].filter(([k]) => !resolvidos.has(k));
+    const CONCORRENCIA = 4;
+    for (let i = 0; i < pendentes.length; i += CONCORRENCIA) {
+      await Promise.all(
+        pendentes.slice(i, i + CONCORRENCIA).map(async ([k, { item }]) => {
+          const encontrados = await buscarLancamentosSimilaresGranatum(
+            empresaId,
+            contaId,
+            item.descricao,
+            20,
+          );
+          const extras: ExemploHistorico[] = encontrados
+            .filter((l) => l.categoriaId)
+            .map((l) => ({
+              descricao: l.descricao,
+              categoriaId: l.categoriaId as string,
+              centroCustoId: l.centroCustoId,
+            }));
+          if (extras.length === 0) return;
+          const r = [...(ranking.get(k) ?? []), ...ranquear(item, extras)].sort(
+            (a, b) => b.score - a.score,
+          );
+          ranking.set(k, r);
+          if (r[0] && r[0].score >= LIMIAR_HISTORICO_FORTE) resolvidos.set(k, deHistorico(r[0]));
+        }),
+      );
+    }
+  }
+
+  // (3) IA só pro que sobrou, numa chamada agrupada.
+  const paraIA = [...grupos].filter(([k]) => !resolvidos.has(k));
+  if (paraIA.length > 0 && (await iaConfigurada(empresaId))) {
+    const tiposPresentes = new Set(paraIA.map(([, g]) => g.item.tipo));
+    const categoriasIA = new Map<string, { id: string; caminho: string }>();
+    for (const tipo of tiposPresentes) {
+      for (const c of categoriasPorTipo[tipo])
+        categoriasIA.set(c.id, { id: c.id, caminho: c.caminho });
+    }
+    const respostas = await sugerirCategorizacaoLote(empresaId, {
+      itens: paraIA.map(([k, { item }]) => ({
+        chave: k,
+        descricao: item.descricao,
+        valor: item.valor,
+        tipo: item.tipo,
+        exemplos: ranking.get(k) ?? [],
+      })),
+      categorias: [...categoriasIA.values()],
+      centros: centrosFolha.map((c) => ({ id: c.id, caminho: c.caminho })),
+    });
+    for (const [k, { item }] of paraIA) {
+      const s = respostas.get(k);
+      // A lista enviada junta receita+despesa quando o lote mistura os dois —
+      // descarta categoria de tipo incompatível com o item.
+      if (!s?.categoriaId || !idsCategoriaPorTipo[item.tipo].has(s.categoriaId)) continue;
+      resolvidos.set(k, {
+        categoriaId: s.categoriaId,
+        centroCustoId:
+          s.centroCustoId && idsCentroValidos.has(s.centroCustoId) ? s.centroCustoId : null,
+        origem: "ia",
+      });
+    }
+  }
+
+  // Sem IA (ou IA sem resposta): aceita um histórico mais distante.
+  for (const [k] of grupos) {
+    if (resolvidos.has(k)) continue;
+    const melhor = ranking.get(k)?.[0];
+    if (melhor && melhor.score > LIMIAR_HISTORICO_FRACO) resolvidos.set(k, deHistorico(melhor));
+  }
+
+  const saida: Record<string, SugestaoParaLancamento> = {};
+  for (const [k, { chaves }] of grupos) {
+    const s = resolvidos.get(k) ?? { categoriaId: null, centroCustoId: null, origem: "nenhuma" };
+    for (const chave of chaves) saida[chave] = s;
+  }
+  return saida;
+}
+
+const sugerirLoteSchema = z.object({
+  itens: z.array(itemSugestaoSchema).min(1).max(500),
+});
+
+/**
+ * Sugestões de todos os pendentes da tela de uma vez, chamada logo depois da
+ * busca — os campos já aparecem preenchidos nos cards, sem abrir diálogo.
+ */
+export const sugerirEmLote = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => sugerirLoteSchema.parse(d))
+  .handler(async ({ data, context }) => sugerirVarios(context.empresaId, data.itens));

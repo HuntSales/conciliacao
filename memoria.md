@@ -209,6 +209,18 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     buscar de novo, e a faixa de aviso ficou `sticky` no topo da tela em vez
     de rolar junto com a lista.
 
+17. **Campos inline + sugestão histórico-primeiro (2026-09-23)**: pedido do
+    William pra deixar a conciliação mais rápida, com menos passos e menos
+    tokens. Descrição/categoria/centro agora aparecem direto no card do Asaas
+    sem par (sem diálogo — `FormCriarLancamento` foi removido) e "Criar no
+    Granatum" é um clique. As sugestões de todos os pendentes são pedidas em
+    lote logo após a busca, resolvendo primeiro pelo histórico (banco local +
+    Granatum) e só mandando pra IA o que não teve parecido forte, numa única
+    chamada agrupada. Antes, com chave OpenAI configurada, **toda** sugestão
+    ia pra IA, mesmo com histórico idêntico, uma chamada por item. De quebra:
+    o `FormConciliarManual` buscava sugestão mas nunca aplicava nos campos
+    (só mostrava o aviso) — corrigido. Ver `CLAUDE.md` pros detalhes.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

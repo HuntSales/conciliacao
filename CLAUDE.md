@@ -164,8 +164,8 @@ lado** vira alvo (`modoVinculo="alvo"`, borda dourada, botão vira "Ligar
 aqui"). Clicar num alvo abre `FormConciliarManual` (dois lados lado a lado,
 avisa se data/valor não baterem exatamente, categoria/centro do lançamento do
 Granatum pré-preenchidos, com sugestão de IA/histórico se ainda estiver sem
-categoria). Um único botão "Salvar e conciliar" aplica a edição no Granatum
-(só se algo mudou) e grava o par. `ModoVinculo` (`"nenhum" | "origem" |
+categoria, reaproveitando o cache de sugestões da tela). Um único botão
+"Salvar e conciliar" aplica a edição no Granatum (só se algo mudou) e grava o par. `ModoVinculo` (`"nenhum" | "origem" |
 "alvo"`) é o tipo compartilhado entre os dois cards — exportado de
 `CardAsaas.tsx`. O mesmo padrão de registrar categoria/centro/descrição vale
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
@@ -187,23 +187,46 @@ sequencial que nunca aborta no meio — cada item tem seu próprio
 sucesso/falha no retorno (`ResultadoLote[]`), então um item já conciliado por
 outra pessoa nesse meio tempo não derruba o resto do lote.
 
-### Sugestão de categoria/centro por IA (`src/lib/ia/openai.server.ts`)
+### Campos inline e sugestão de categoria/centro (`sugerirEmLote`, `src/lib/ia/openai.server.ts`)
 
-Ao abrir "Criar no Granatum" para um item do Asaas sem par, `sugerirParaLancamento`
-(`conciliacao.functions.ts`) monta um histórico combinado — local
-(`pares_conciliacao.categoria_id`/`centro_custo_id`/`descricao`, preenchido a cada
-criação/edição feita pelo app) + remoto (busca textual ao vivo no Granatum via
-`buscarLancamentosSimilaresGranatum`, parâmetro `busca` da própria tool
-`listar_lancamentos`) — e manda pra OpenAI (Chat Completions, `response_format:
-json_schema` com `strict: true`) junto com a lista de categorias/centros **folha**
-já cadastrados. O schema JSON restringe a resposta a um `enum` só com os ids reais
-recebidos — o modelo nunca pode inventar/propor uma categoria ou centro que não
-exista, e o sistema nunca cria categoria/centro novo (só lançamento). Sem chave
-OpenAI configurada (`integracoes_ia`), cai num fallback só-heurístico: pega o
-histórico mais parecido por `similaridadeDescricao` (mesma função de
-`matching.ts`) se a similaridade passar de um limiar; sem histórico parecido,
-não sugere nada (usuário escolhe manualmente). Falha de rede/API da OpenAI nunca
-trava a criação do lançamento — a sugestão é sempre best-effort.
+Não existe mais diálogo "Criar no Granatum": cada card do Asaas sem par já
+mostra descrição, categoria e centro de custo editáveis (`CardAsaas`), e o
+botão "Criar no Granatum" cria e concilia direto. O `CardGranatum` sem
+categoria também vem pré-preenchido. "Confirmar" uma sugestão da engine aplica
+no Granatum o que estiver nos campos do card (se mudou) antes de gravar o par.
+
+Logo depois de cada busca, `conciliacao.tsx` chama `sugerirEmLote` **uma vez**
+com todos os pendentes (chave `a:<id>` para Asaas sem par, `g:<id>` para
+Granatum sem categoria). O resultado fica num cache por item durante a sessão
+(`sugestoes` + `sugestoesPedidas`) — uma nova busca só pede o que ainda não
+veio, pra não gastar token de novo com o mesmo item. `FormConciliarManual` e
+`FormCriarLote` reaproveitam esse cache (o lote pré-preenche só se todos os
+selecionados tiverem a mesma sugestão).
+
+`sugerirVarios` (`conciliacao.functions.ts`) resolve na ordem mais barata
+primeiro, parando no primeiro histórico com similaridade ≥
+`LIMIAR_HISTORICO_FORTE`:
+
+1. Histórico já carregado de uma vez pro lote inteiro: local
+   (`pares_conciliacao.categoria_id`/`centro_custo_id`/`descricao`) + últimos
+   `DIAS_HISTORICO_GRANATUM` dias da própria conta no Granatum.
+2. Busca textual no Granatum (`buscarLancamentosSimilaresGranatum`, parâmetro
+   `busca` da tool `listar_lancamentos`), só pros que ainda faltam — pega
+   lançamentos mais antigos. Sem tokens, concorrência limitada.
+3. IA, só pro que sobrou, numa chamada agrupada (`sugerirCategorizacaoLote`,
+   até 20 itens por chamada — a lista de categorias/centros, que é a maior
+   parte do prompt, vai uma vez por lote).
+4. Sem IA ou sem resposta: histórico mais distante (> `LIMIAR_HISTORICO_FRACO`),
+   senão nada.
+
+Descrições repetidas no lote (mesmo tipo + texto normalizado) são resolvidas
+uma vez só. A IA usa Chat Completions com `response_format: json_schema`
+`strict: true`, e o schema restringe `categoria_id`/`centro_custo_id` a um
+`enum` com só os ids **folha** reais — o modelo nunca inventa categoria ou
+centro, e o sistema nunca cria categoria/centro novo (só lançamento). Como o
+lote pode misturar receita e despesa, a lista enviada junta as duas e o
+servidor descarta categoria de tipo incompatível com o item. Falha de
+rede/API da OpenAI nunca trava nada — a sugestão é sempre best-effort.
 
 ### Saldos (`buscarSaldoAsaas`, `buscarSaldoContaGranatum`)
 

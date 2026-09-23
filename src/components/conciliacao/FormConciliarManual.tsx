@@ -1,6 +1,4 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,18 +21,20 @@ import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import {
   confirmarPar,
   editarLancamento,
-  sugerirParaLancamento,
   type ItemAsaas,
   type ItemGranatum,
+  type SugestaoParaLancamento,
 } from "@/lib/conciliacao.functions";
 import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
+import { AvisoSugestao } from "./AvisoSugestao";
 
 export function FormConciliarManual({
   asaas,
   granatum,
   categorias,
   centros,
+  sugestao,
   aberto,
   onFechar,
   onConciliado,
@@ -43,13 +43,20 @@ export function FormConciliarManual({
   granatum: ItemGranatum | null;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
+  /** Já calculada em lote pela tela; só usada se o Granatum estiver sem categoria. */
+  sugestao: SugestaoParaLancamento | undefined;
   aberto: boolean;
   onFechar: () => void;
   onConciliado: () => void;
 }) {
   const [descricao, setDescricao] = useState(granatum?.descricao ?? "");
-  const [categoriaId, setCategoriaId] = useState(granatum?.categoriaId ?? "");
-  const [centroCustoId, setCentroCustoId] = useState(granatum?.centroCustoId ?? "");
+  const usarSugestao = !granatum?.categoriaId && sugestao?.origem !== "nenhuma";
+  const [categoriaId, setCategoriaId] = useState(
+    granatum?.categoriaId ?? (usarSugestao ? sugestao?.categoriaId : null) ?? "",
+  );
+  const [centroCustoId, setCentroCustoId] = useState(
+    granatum?.centroCustoId ?? (usarSugestao ? sugestao?.centroCustoId : null) ?? "",
+  );
   const [salvando, setSalvando] = useState(false);
 
   const categoriasFolha = useMemo(
@@ -58,17 +65,6 @@ export function FormConciliarManual({
     [categorias, granatum],
   );
   const centrosFolha = useMemo(() => folhas(centros), [centros]);
-
-  const sugestao = useQuery({
-    queryKey: ["sugestao-categorizacao", "manual", asaas?.id, granatum?.id],
-    queryFn: () =>
-      sugerirParaLancamento({
-        data: { descricao: granatum!.descricao, valor: granatum!.valor, tipo: granatum!.tipo },
-      }),
-    enabled: Boolean(asaas) && Boolean(granatum) && aberto && !granatum?.categoriaId,
-    staleTime: Infinity,
-    retry: false,
-  });
 
   if (!asaas || !granatum) return null;
 
@@ -162,18 +158,7 @@ export function FormConciliarManual({
             <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           </div>
 
-          {sugestao.isFetching ? (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5" /> Buscando sugestão de categoria e centro de custo…
-            </p>
-          ) : sugestao.data && sugestao.data.origem !== "nenhuma" ? (
-            <p className="flex items-center gap-1.5 text-xs text-gold">
-              <Sparkles className="h-3.5 w-3.5" />
-              {sugestao.data.origem === "ia"
-                ? "Sugerido por IA — confira antes de salvar."
-                : "Sugerido com base em lançamento parecido — confira antes de salvar."}
-            </p>
-          ) : null}
+          {usarSugestao ? <AvisoSugestao sugestao={sugestao} buscando={false} /> : null}
 
           <div className="grid gap-3">
             <div className="space-y-1">

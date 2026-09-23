@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layers, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
@@ -9,17 +9,19 @@ import { EmptyState } from "@/components/corp/EmptyState";
 import { FiltroPeriodo, type Periodo } from "@/components/conciliacao/FiltroPeriodo";
 import { ResumoTopo } from "@/components/conciliacao/ResumoTopo";
 import { CardAsaas, type ModoVinculo } from "@/components/conciliacao/CardAsaas";
-import { CardGranatum } from "@/components/conciliacao/CardGranatum";
-import { FormCriarLancamento } from "@/components/conciliacao/FormCriarLancamento";
+import { CardGranatum, type CamposGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
 import { FormCriarLote } from "@/components/conciliacao/FormCriarLote";
 import {
   buscarLancamentos,
   confirmarPar,
   desfazerPar,
+  editarLancamento,
   listarCadastros,
+  sugerirEmLote,
   type ItemAsaas,
   type ItemGranatum,
+  type SugestaoParaLancamento,
 } from "@/lib/conciliacao.functions";
 import { hojeIso } from "@/lib/format";
 import { montarNav } from "@/components/corp/nav-padrao";
@@ -64,7 +66,6 @@ function ConciliacaoPage() {
     toleranciaDias: 0,
   });
   const [filtro, setFiltro] = useState<FiltroRapido>("todos");
-  const [itemParaCriar, setItemParaCriar] = useState<ItemAsaas | null>(null);
   const [origemVinculo, setOrigemVinculo] = useState<OrigemVinculo>(null);
   const [parEmDialogo, setParEmDialogo] = useState<{
     asaas: ItemAsaas;
@@ -90,6 +91,46 @@ function ConciliacaoPage() {
 
   const invalidarBusca = () => busca.mutate();
 
+  // Sugestões de categoria/centro de todos os pendentes, pedidas em lote logo
+  // depois de cada busca. Ficam em cache por item durante a sessão: uma nova
+  // busca (ex.: depois de criar um lançamento) só pede as que ainda não vieram,
+  // pra não gastar token de novo com o mesmo item.
+  const [sugestoes, setSugestoes] = useState<Record<string, SugestaoParaLancamento>>({});
+  const sugestoesPedidas = useRef(new Set<string>());
+  const [sugestoesEmAndamento, setSugestoesEmAndamento] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const d = busca.data;
+    if (!d) return;
+    const itens = [
+      ...d.asaas
+        .filter((a) => !a.tipoPar)
+        .map((a) => ({ chave: `a:${a.id}`, descricao: a.descricao, valor: a.valor, tipo: a.tipo })),
+      ...d.granatum
+        .filter((g) => !g.categoriaId)
+        .map((g) => ({ chave: `g:${g.id}`, descricao: g.descricao, valor: g.valor, tipo: g.tipo })),
+    ].filter((i) => i.descricao.trim() && !sugestoesPedidas.current.has(i.chave));
+    if (itens.length === 0) return;
+
+    const chaves = itens.map((i) => i.chave);
+    for (const c of chaves) sugestoesPedidas.current.add(c);
+    setSugestoesEmAndamento((prev) => new Set([...prev, ...chaves]));
+    sugerirEmLote({ data: { itens } })
+      .then((r) => setSugestoes((prev) => ({ ...prev, ...r })))
+      .catch(() => {
+        // Best-effort: sem sugestão o usuário escolhe manualmente; libera pra
+        // tentar de novo na próxima busca.
+        for (const c of chaves) sugestoesPedidas.current.delete(c);
+      })
+      .finally(() =>
+        setSugestoesEmAndamento((prev) => {
+          const novo = new Set(prev);
+          for (const c of chaves) novo.delete(c);
+          return novo;
+        }),
+      );
+  }, [busca.data]);
+
   const buscarNovamente = () => {
     // Uma nova busca não deve carregar seleção/vínculo pendente da busca
     // anterior — senão os cards somem os botões normais achando que ainda tem
@@ -101,7 +142,49 @@ function ConciliacaoPage() {
   };
 
   const confirmar = useMutation({
-    mutationFn: confirmarPar,
+    mutationFn: async ({
+      asaas,
+      granatum,
+      campos,
+    }: {
+      asaas: ItemAsaas;
+      granatum: ItemGranatum;
+      campos: CamposGranatum;
+    }) => {
+      // O card pode ter sido editado ou pré-preenchido pela sugestão — aplica
+      // no Granatum antes de confirmar o par, pra "Confirmar" já resolver tudo.
+      const mudou =
+        campos.descricao !== granatum.descricao ||
+        campos.categoriaId !== granatum.categoriaId ||
+        campos.centroCustoId !== granatum.centroCustoId;
+      if (mudou) {
+        await editarLancamento({
+          data: {
+            id: granatum.id,
+            descricao: campos.descricao,
+            categoriaId: campos.categoriaId ?? undefined,
+            centroCustoId: campos.centroCustoId,
+            antes: {
+              descricao: granatum.descricao,
+              categoriaId: granatum.categoriaId,
+              centroCustoId: granatum.centroCustoId,
+            },
+          },
+        });
+      }
+      await confirmarPar({
+        data: {
+          asaasId: asaas.id,
+          granatumId: granatum.id,
+          data: granatum.data,
+          valor: granatum.valor,
+          tipo: "manual",
+          descricao: campos.descricao,
+          categoriaId: campos.categoriaId ?? undefined,
+          centroCustoId: campos.centroCustoId,
+        },
+      });
+    },
     onSuccess: () => {
       toast.success("Conciliado");
       invalidarBusca();
@@ -287,6 +370,10 @@ function ConciliacaoPage() {
                       {linha.asaas ? (
                         <CardAsaas
                           item={linha.asaas}
+                          categorias={cadastros.data?.categorias ?? []}
+                          centros={cadastros.data?.centrosCusto ?? []}
+                          sugestao={sugestoes[`a:${linha.asaas.id}`]}
+                          buscandoSugestao={sugestoesEmAndamento.has(`a:${linha.asaas.id}`)}
                           modoVinculo={modoParaAsaas(linha.asaas)}
                           selecionadoLote={selecionadosLote.has(linha.asaas.id)}
                           onSelecionarLote={
@@ -294,7 +381,7 @@ function ConciliacaoPage() {
                               ? undefined
                               : (m) => alternarSelecaoLote(linha.asaas!.id, m)
                           }
-                          onCriarNoGranatum={() => setItemParaCriar(linha.asaas)}
+                          onCriado={invalidarBusca}
                           onIniciarVinculo={() =>
                             setOrigemVinculo({ lado: "asaas", item: linha.asaas! })
                           }
@@ -331,6 +418,8 @@ function ConciliacaoPage() {
                           item={linha.granatum}
                           categorias={cadastros.data?.categorias ?? []}
                           centros={cadastros.data?.centrosCusto ?? []}
+                          sugestao={sugestoes[`g:${linha.granatum.id}`]}
+                          buscandoSugestao={sugestoesEmAndamento.has(`g:${linha.granatum.id}`)}
                           modoVinculo={modoParaGranatum(linha.granatum)}
                           onSalvo={invalidarBusca}
                           onIniciarVinculo={() =>
@@ -345,18 +434,11 @@ function ConciliacaoPage() {
                           }
                           onConfirmarSugestao={
                             linha.asaas
-                              ? () =>
+                              ? (campos) =>
                                   confirmar.mutate({
-                                    data: {
-                                      asaasId: linha.asaas!.id,
-                                      granatumId: linha.granatum!.id,
-                                      data: linha.granatum!.data,
-                                      valor: linha.granatum!.valor,
-                                      tipo: "manual",
-                                      descricao: linha.granatum!.descricao,
-                                      categoriaId: linha.granatum!.categoriaId ?? undefined,
-                                      centroCustoId: linha.granatum!.centroCustoId,
-                                    },
+                                    asaas: linha.asaas!,
+                                    granatum: linha.granatum!,
+                                    campos,
                                   })
                               : undefined
                           }
@@ -385,25 +467,18 @@ function ConciliacaoPage() {
         )}
       </div>
 
-      <FormCriarLancamento
-        key={itemParaCriar?.id ?? "vazio"}
-        item={itemParaCriar}
-        categorias={cadastros.data?.categorias ?? []}
-        centros={cadastros.data?.centrosCusto ?? []}
-        aberto={Boolean(itemParaCriar)}
-        onFechar={() => setItemParaCriar(null)}
-        onCriado={() => {
-          setItemParaCriar(null);
-          invalidarBusca();
-        }}
-      />
-
       <FormConciliarManual
         key={`${parEmDialogo?.asaas.id ?? "x"}-${parEmDialogo?.granatum.id ?? "x"}`}
         asaas={parEmDialogo?.asaas ?? null}
         granatum={parEmDialogo?.granatum ?? null}
         categorias={cadastros.data?.categorias ?? []}
         centros={cadastros.data?.centrosCusto ?? []}
+        sugestao={
+          parEmDialogo
+            ? (sugestoes[`g:${parEmDialogo.granatum.id}`] ??
+              sugestoes[`a:${parEmDialogo.asaas.id}`])
+            : undefined
+        }
         aberto={Boolean(parEmDialogo)}
         onFechar={() => setParEmDialogo(null)}
         onConciliado={() => {
@@ -415,6 +490,7 @@ function ConciliacaoPage() {
       <FormCriarLote
         key={[...selecionadosLote].sort().join(",")}
         itens={itensLote}
+        sugestoes={sugestoes}
         categorias={cadastros.data?.categorias ?? []}
         centros={cadastros.data?.centrosCusto ?? []}
         aberto={loteAberto}

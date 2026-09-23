@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Link2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
-import { editarLancamento, type ItemGranatum } from "@/lib/conciliacao.functions";
+import {
+  editarLancamento,
+  type ItemGranatum,
+  type SugestaoParaLancamento,
+} from "@/lib/conciliacao.functions";
 import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import type { ModoVinculo } from "./CardAsaas";
+import { AvisoSugestao } from "./AvisoSugestao";
+
+export type CamposGranatum = {
+  descricao: string;
+  categoriaId: string | null;
+  centroCustoId: string | null;
+};
 
 function badge(tipoPar: ItemGranatum["tipoPar"]) {
   if (tipoPar === "automatico" || tipoPar === "manual") {
@@ -31,6 +42,8 @@ export function CardGranatum({
   item,
   categorias,
   centros,
+  sugestao,
+  buscandoSugestao,
   modoVinculo,
   onDesfazer,
   onConfirmarSugestao,
@@ -43,9 +56,13 @@ export function CardGranatum({
   item: ItemGranatum;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
+  /** Só vem para lançamento ainda sem categoria no Granatum. */
+  sugestao?: SugestaoParaLancamento | undefined;
+  buscandoSugestao?: boolean | undefined;
   modoVinculo: ModoVinculo;
   onDesfazer?: (() => void) | undefined;
-  onConfirmarSugestao?: (() => void) | undefined;
+  /** Recebe o que está nos campos do card — pode ter sido editado/pré-preenchido. */
+  onConfirmarSugestao?: ((campos: CamposGranatum) => void) | undefined;
   onRejeitarSugestao?: (() => void) | undefined;
   onIniciarVinculo: () => void;
   onCancelarVinculo: () => void;
@@ -64,6 +81,14 @@ export function CardGranatum({
   const [categoriaId, setCategoriaId] = useState(item.categoriaId ?? "");
   const [centroCustoId, setCentroCustoId] = useState(item.centroCustoId ?? "");
   const [salvando, setSalvando] = useState(false);
+
+  // Sem categoria no Granatum: pré-preenche com a sugestão (histórico/IA),
+  // mas só grava quando o usuário clicar em Salvar ou Confirmar.
+  useEffect(() => {
+    if (!sugestao || item.categoriaId) return;
+    if (sugestao.categoriaId) setCategoriaId((atual) => atual || sugestao.categoriaId!);
+    if (sugestao.centroCustoId) setCentroCustoId((atual) => atual || sugestao.centroCustoId!);
+  }, [sugestao, item.categoriaId]);
 
   const salvar = async () => {
     setSalvando(true);
@@ -104,6 +129,10 @@ export function CardGranatum({
       </div>
 
       <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+
+      {!item.categoriaId ? (
+        <AvisoSugestao sugestao={sugestao} buscando={buscandoSugestao ?? false} />
+      ) : null}
 
       <div className="grid gap-2">
         <div className="space-y-1">
@@ -147,7 +176,17 @@ export function CardGranatum({
         <div className="flex flex-wrap justify-end gap-2">
           {item.tipoPar === "sugestao" ? (
             <>
-              <Button variant="corp" size="sm" onClick={onConfirmarSugestao}>
+              <Button
+                variant="corp"
+                size="sm"
+                onClick={() =>
+                  onConfirmarSugestao?.({
+                    descricao,
+                    categoriaId: categoriaId || null,
+                    centroCustoId: centroCustoId || null,
+                  })
+                }
+              >
                 <Check /> Confirmar
               </Button>
               <Button variant="ghostCorp" size="sm" onClick={onRejeitarSugestao}>

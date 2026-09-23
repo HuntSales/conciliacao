@@ -17,12 +17,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatarDataCurta, formatarMoeda } from "@/lib/format";
-import { criarLoteAPartirDoAsaas, type ItemAsaas } from "@/lib/conciliacao.functions";
+import {
+  criarLoteAPartirDoAsaas,
+  type ItemAsaas,
+  type SugestaoParaLancamento,
+} from "@/lib/conciliacao.functions";
 import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 
 export function FormCriarLote({
   itens,
+  sugestoes,
   categorias,
   centros,
   aberto,
@@ -30,14 +35,21 @@ export function FormCriarLote({
   onCriado,
 }: {
   itens: ItemAsaas[];
+  sugestoes: Record<string, SugestaoParaLancamento>;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
   aberto: boolean;
   onFechar: () => void;
   onCriado: () => void;
 }) {
-  const [categoriaId, setCategoriaId] = useState("");
-  const [centroCustoId, setCentroCustoId] = useState("");
+  // Pré-preenche só se todos os selecionados tiverem a mesma sugestão.
+  const unanime = (campo: "categoriaId" | "centroCustoId") => {
+    const valores = new Set(itens.map((i) => sugestoes[`a:${i.id}`]?.[campo] ?? null));
+    const [unico] = valores;
+    return valores.size === 1 && unico ? unico : "";
+  };
+  const [categoriaId, setCategoriaId] = useState(() => unanime("categoriaId"));
+  const [centroCustoId, setCentroCustoId] = useState(() => unanime("centroCustoId"));
   const [salvando, setSalvando] = useState(false);
 
   // Se os itens selecionados misturarem receita e despesa, só oferece
