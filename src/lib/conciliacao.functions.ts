@@ -385,36 +385,55 @@ export type ResultadoLote = {
   erro?: string;
 };
 
+/** Cria um por um, sem abortar no meio — cada item tem seu próprio sucesso/falha. */
+async function criarVarios(
+  empresaId: string,
+  itens: ItemParaCriar[],
+  usuarioId: string | undefined,
+): Promise<ResultadoLote[]> {
+  const resultados: ResultadoLote[] = [];
+  for (const item of itens) {
+    try {
+      await criarUmLancamentoAPartirDoAsaas(empresaId, item, usuarioId);
+      resultados.push({ asaasId: item.asaasId, ok: true });
+    } catch (erro) {
+      resultados.push({
+        asaasId: item.asaasId,
+        ok: false,
+        erro: erro instanceof Error ? erro.message : "Falha desconhecida",
+      });
+    }
+  }
+  return resultados;
+}
+
 export const criarLoteAPartirDoAsaas = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
   .inputValidator((d: unknown) => criarLoteSchema.parse(d))
-  .handler(async ({ data, context }): Promise<ResultadoLote[]> => {
-    const resultados: ResultadoLote[] = [];
-    for (const item of data.itens) {
-      try {
-        await criarUmLancamentoAPartirDoAsaas(
-          context.empresaId,
-          {
-            asaasId: item.asaasId,
-            data: item.data,
-            descricao: item.descricao,
-            valor: item.valor,
-            categoriaId: data.categoriaId,
-            centroCustoId: data.centroCustoId ?? null,
-          },
-          context.userId,
-        );
-        resultados.push({ asaasId: item.asaasId, ok: true });
-      } catch (erro) {
-        resultados.push({
-          asaasId: item.asaasId,
-          ok: false,
-          erro: erro instanceof Error ? erro.message : "Falha desconhecida",
-        });
-      }
-    }
-    return resultados;
-  });
+  .handler(async ({ data, context }): Promise<ResultadoLote[]> =>
+    criarVarios(
+      context.empresaId,
+      data.itens.map((item) => ({
+        ...item,
+        categoriaId: data.categoriaId,
+        centroCustoId: data.centroCustoId ?? null,
+      })),
+      context.userId,
+    ),
+  );
+
+const criarCadaUmSchema = z.object({ itens: z.array(itemParaCriarSchema).min(1) });
+
+/**
+ * "Criar todos": cada item com a própria descrição/categoria/centro que está
+ * no card (diferente de `criarLoteAPartirDoAsaas`, que aplica uma categoria só).
+ */
+export const criarCadaUmAPartirDoAsaas = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => criarCadaUmSchema.parse(d))
+  .handler(async ({ data, context }): Promise<ResultadoLote[]> =>
+    criarVarios(context.empresaId, data.itens, context.userId),
+  );
 
 const itemSugestaoSchema = z.object({
   chave: z.string(),

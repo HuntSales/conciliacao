@@ -221,6 +221,12 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     o `FormConciliarManual` buscava sugestão mas nunca aplicava nos campos
     (só mostrava o aviso) — corrigido. Ver `CLAUDE.md` pros detalhes.
 
+18. **"Criar todos" com a categoria de cada card (2026-09-23)**: pedido do
+    William — selecionar todos os lançamentos do Asaas ainda não criados e
+    criá-los de uma vez usando a categoria/centro já definidos (sugeridos ou
+    editados) em cada card, em vez de uma categoria única pro lote. O lote
+    antigo continua disponível como "Mesma categoria para todos".
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

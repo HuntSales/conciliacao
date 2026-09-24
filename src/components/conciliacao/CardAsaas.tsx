@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -34,10 +34,15 @@ function badge(tipoPar: ItemAsaas["tipoPar"]) {
 
 export type ModoVinculo = "nenhum" | "origem" | "alvo";
 
+/** O que vai pro Granatum ao criar — fica na página pra "Criar todos" ler. */
+export type CamposAsaas = { descricao: string; categoriaId: string; centroCustoId: string };
+
 export function CardAsaas({
   item,
   categorias,
   centros,
+  campos,
+  onMudarCampos,
   sugestao,
   buscandoSugestao,
   modoVinculo,
@@ -51,6 +56,9 @@ export function CardAsaas({
   item: ItemAsaas;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
+  /** Já com a sugestão aplicada no que o usuário ainda não escolheu. */
+  campos: CamposAsaas;
+  onMudarCampos: (parcial: Partial<CamposAsaas>) => void;
   sugestao: SugestaoParaLancamento | undefined;
   buscandoSugestao: boolean;
   modoVinculo: ModoVinculo;
@@ -69,18 +77,8 @@ export function CardAsaas({
   );
   const centrosFolha = useMemo(() => folhas(centros), [centros]);
 
-  const [descricao, setDescricao] = useState(item.descricao);
-  const [categoriaId, setCategoriaId] = useState(sugestao?.categoriaId ?? "");
-  const [centroCustoId, setCentroCustoId] = useState(sugestao?.centroCustoId ?? "");
+  const { descricao, categoriaId, centroCustoId } = campos;
   const [salvando, setSalvando] = useState(false);
-
-  // A sugestão chega depois da busca (em lote, em segundo plano) — só
-  // preenche o que o usuário ainda não escolheu.
-  useEffect(() => {
-    if (!sugestao) return;
-    if (sugestao.categoriaId) setCategoriaId((atual) => atual || sugestao.categoriaId!);
-    if (sugestao.centroCustoId) setCentroCustoId((atual) => atual || sugestao.centroCustoId!);
-  }, [sugestao]);
 
   const pendente = !item.tipoPar;
   const editavel = pendente && modoVinculo === "nenhum";
@@ -144,13 +142,16 @@ export function CardAsaas({
         <div className="mt-3 space-y-2">
           <div className="space-y-1">
             <Label className="lbl">Descrição no Granatum</Label>
-            <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+            <Input
+              value={descricao}
+              onChange={(e) => onMudarCampos({ descricao: e.target.value })}
+            />
           </div>
           <AvisoSugestao sugestao={sugestao} buscando={buscandoSugestao} />
           <div className="grid gap-2">
             <div className="space-y-1">
               <Label className="lbl">Categoria</Label>
-              <Select value={categoriaId} onValueChange={setCategoriaId}>
+              <Select value={categoriaId} onValueChange={(v) => onMudarCampos({ categoriaId: v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
@@ -165,7 +166,10 @@ export function CardAsaas({
             </div>
             <div className="space-y-1">
               <Label className="lbl">Centro de custo</Label>
-              <Select value={centroCustoId} onValueChange={setCentroCustoId}>
+              <Select
+                value={centroCustoId}
+                onValueChange={(v) => onMudarCampos({ centroCustoId: v })}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>

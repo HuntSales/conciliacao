@@ -171,21 +171,32 @@ categoria, reaproveitando o cache de sugestões da tela). Um único botão
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 (ver seção de IA abaixo) mesmo quando o usuário só confirma sem editar nada.
 
-### Criação em lote (`FormCriarLote.tsx`, `criarLoteAPartirDoAsaas`)
+### Criação em lote (`criarCadaUmAPartirDoAsaas`, `FormCriarLote.tsx`, `criarLoteAPartirDoAsaas`)
 
 Checkbox em cada card do Asaas sem par (independente do `modoVinculo` — some
 enquanto uma ligação está em andamento, pra não confundir os dois modos ao
-mesmo tempo) alimenta `selecionadosLote` em `conciliacao.tsx`. Com 1+
-selecionado(s), aparece uma faixa com "Criar em lote", que abre
-`FormCriarLote`: **uma** categoria e **um** centro de custo aplicados a todos,
-mas cada item mantém sua própria descrição/valor/data. Categoria filtrada por
-tipo comum entre os selecionados — se misturar receita e despesa, só mostra
-categorias "mista" (não dá pra aplicar uma categoria de tipo fixo nos dois
-sentidos ao mesmo tempo). `criarLoteAPartirDoAsaas` reaproveita o mesmo núcleo
-(`criarUmLancamentoAPartirDoAsaas`) da criação individual, num loop
-sequencial que nunca aborta no meio — cada item tem seu próprio
-sucesso/falha no retorno (`ResultadoLote[]`), então um item já conciliado por
-outra pessoa nesse meio tempo não derruba o resto do lote.
+mesmo tempo) alimenta `selecionadosLote` em `conciliacao.tsx`; o botão
+"Selecionar todos os pendentes" marca todos os do filtro atual. Com 1+
+selecionado(s), aparece uma faixa fixa no topo com duas opções:
+
+- **"Criar todos"** (ou "Criar N selecionados" se não forem todos):
+  `criarCadaUmAPartirDoAsaas`, cada item com a descrição/categoria/centro que
+  está no próprio card. Por isso os campos do card do Asaas são controlados
+  pela página (`edicoesAsaas` + `camposAsaas()`, que aplica a sugestão no que
+  o usuário ainda não mexeu), e não estado local do `CardAsaas`. Recusa antes
+  de chamar o servidor se algum selecionado estiver sem categoria. Depois,
+  só os que falharam continuam selecionados.
+- **"Mesma categoria para todos"**: abre `FormCriarLote` — **uma** categoria e
+  **um** centro aplicados a todos (`criarLoteAPartirDoAsaas`), cada item
+  mantendo sua descrição/valor/data. Categoria filtrada por tipo comum entre
+  os selecionados — se misturar receita e despesa, só mostra categorias
+  "mista".
+
+Os dois reaproveitam o mesmo núcleo (`criarUmLancamentoAPartirDoAsaas`) da
+criação individual, via `criarVarios`: loop sequencial que nunca aborta no
+meio — cada item tem seu próprio sucesso/falha no retorno (`ResultadoLote[]`),
+então um item já conciliado por outra pessoa nesse meio tempo não derruba o
+resto do lote.
 
 ### Campos inline e sugestão de categoria/centro (`sugerirEmLote`, `src/lib/ia/openai.server.ts`)
 

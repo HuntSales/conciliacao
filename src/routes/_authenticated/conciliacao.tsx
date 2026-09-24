@@ -1,20 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Layers, RefreshCw, X } from "lucide-react";
+import { CheckSquare, Layers, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/corp/EmptyState";
 import { FiltroPeriodo, type Periodo } from "@/components/conciliacao/FiltroPeriodo";
 import { ResumoTopo } from "@/components/conciliacao/ResumoTopo";
-import { CardAsaas, type ModoVinculo } from "@/components/conciliacao/CardAsaas";
+import { CardAsaas, type CamposAsaas, type ModoVinculo } from "@/components/conciliacao/CardAsaas";
 import { CardGranatum, type CamposGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
 import { FormCriarLote } from "@/components/conciliacao/FormCriarLote";
 import {
   buscarLancamentos,
   confirmarPar,
+  criarCadaUmAPartirDoAsaas,
   desfazerPar,
   editarLancamento,
   listarCadastros,
@@ -98,6 +99,23 @@ function ConciliacaoPage() {
   const [sugestoes, setSugestoes] = useState<Record<string, SugestaoParaLancamento>>({});
   const sugestoesPedidas = useRef(new Set<string>());
   const [sugestoesEmAndamento, setSugestoesEmAndamento] = useState<Set<string>>(new Set());
+
+  // O que o usuário já mexeu nos campos de cada card do Asaas. Fica aqui (e
+  // não dentro do card) pra "Criar todos" usar a categoria/centro de cada um.
+  const [edicoesAsaas, setEdicoesAsaas] = useState<Record<string, Partial<CamposAsaas>>>({});
+
+  const camposAsaas = (item: ItemAsaas): CamposAsaas => {
+    const ed = edicoesAsaas[item.id];
+    const s = sugestoes[`a:${item.id}`];
+    return {
+      descricao: ed?.descricao ?? item.descricao,
+      categoriaId: ed?.categoriaId ?? s?.categoriaId ?? "",
+      centroCustoId: ed?.centroCustoId ?? s?.centroCustoId ?? "",
+    };
+  };
+
+  const mudarCamposAsaas = (id: string, parcial: Partial<CamposAsaas>) =>
+    setEdicoesAsaas((prev) => ({ ...prev, [id]: { ...prev[id], ...parcial } }));
 
   useEffect(() => {
     const d = busca.data;
@@ -260,6 +278,63 @@ function ConciliacaoPage() {
 
   const itensLote = (dados?.asaas ?? []).filter((a) => selecionadosLote.has(a.id));
 
+  const pendentesAsaasVisiveis = linhasFiltradas
+    .map((l) => l.asaas)
+    .filter((a): a is ItemAsaas => Boolean(a && !a.tipoPar));
+  const todosPendentesSelecionados =
+    pendentesAsaasVisiveis.length > 0 &&
+    pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
+
+  const criarTodos = useMutation({
+    mutationFn: async (itens: ItemAsaas[]) =>
+      criarCadaUmAPartirDoAsaas({
+        data: {
+          itens: itens.map((i) => {
+            const c = camposAsaas(i);
+            return {
+              asaasId: i.id,
+              data: i.data,
+              descricao: c.descricao,
+              valor: i.valor,
+              categoriaId: c.categoriaId,
+              centroCustoId: c.centroCustoId || null,
+            };
+          }),
+        },
+      }),
+    onSuccess: (resultados) => {
+      const falhas = resultados.filter((r) => !r.ok);
+      if (falhas.length === 0) {
+        toast.success(`${resultados.length} lançamento(s) criado(s) e conciliado(s)`);
+      } else {
+        toast.error(
+          `${resultados.length - falhas.length} criado(s), ${falhas.length} falharam: ${falhas[0]?.erro ?? ""}`,
+        );
+      }
+      // Mantém selecionados só os que falharam, pra tentar de novo.
+      setSelecionadosLote(new Set(falhas.map((f) => f.asaasId)));
+      invalidarBusca();
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Falha ao criar lançamentos"),
+  });
+
+  const iniciarCriarTodos = () => {
+    const semCategoria = itensLote.filter((i) => !camposAsaas(i).categoriaId);
+    if (semCategoria.length > 0) {
+      toast.error(
+        `${semCategoria.length} lançamento(s) selecionado(s) sem categoria — preencha ou desmarque antes de criar.`,
+      );
+      return;
+    }
+    const semDescricao = itensLote.filter((i) => !camposAsaas(i).descricao.trim());
+    if (semDescricao.length > 0) {
+      toast.error(`${semDescricao.length} lançamento(s) selecionado(s) sem descrição.`);
+      return;
+    }
+    criarTodos.mutate(itensLote);
+  };
+
   return (
     <Shell itens={nav} contexto="Conciliação">
       <TituloPagina
@@ -312,6 +387,22 @@ function ConciliacaoPage() {
                   {rotulo}
                 </Button>
               ))}
+              {!origemVinculo &&
+              pendentesAsaasVisiveis.length > 0 &&
+              !todosPendentesSelecionados ? (
+                <Button
+                  variant="ghostCorp"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() =>
+                    setSelecionadosLote(
+                      (prev) => new Set([...prev, ...pendentesAsaasVisiveis.map((a) => a.id)]),
+                    )
+                  }
+                >
+                  <CheckSquare /> Selecionar todos os pendentes
+                </Button>
+              ) : null}
             </div>
 
             {origemVinculo ? (
@@ -332,13 +423,13 @@ function ConciliacaoPage() {
             ) : null}
 
             {selecionadosLote.size > 0 ? (
-              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+              <div className="corp-card fade-up sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
                 <p className="text-sm text-body">
                   <strong className="text-foreground">{selecionadosLote.size}</strong> lançamento(s)
-                  do Asaas selecionado(s) pra criar no Granatum com a mesma categoria e centro de
-                  custo.
+                  do Asaas selecionado(s). "Criar" usa a descrição, categoria e centro de custo de
+                  cada card.
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="ghostCorp"
                     size="sm"
@@ -346,8 +437,22 @@ function ConciliacaoPage() {
                   >
                     <X /> Limpar seleção
                   </Button>
-                  <Button variant="corp" size="sm" onClick={() => setLoteAberto(true)}>
-                    <Layers /> Criar em lote
+                  <Button variant="corpOutline" size="sm" onClick={() => setLoteAberto(true)}>
+                    <Layers /> Mesma categoria para todos
+                  </Button>
+                  <Button
+                    variant="corp"
+                    size="sm"
+                    disabled={criarTodos.isPending}
+                    onClick={iniciarCriarTodos}
+                  >
+                    <Plus />{" "}
+                    {criarTodos.isPending
+                      ? "Criando"
+                      : todosPendentesSelecionados &&
+                          selecionadosLote.size === pendentesAsaasVisiveis.length
+                        ? "Criar todos"
+                        : `Criar ${selecionadosLote.size} selecionado(s)`}
                   </Button>
                 </div>
               </div>
@@ -372,6 +477,8 @@ function ConciliacaoPage() {
                           item={linha.asaas}
                           categorias={cadastros.data?.categorias ?? []}
                           centros={cadastros.data?.centrosCusto ?? []}
+                          campos={camposAsaas(linha.asaas)}
+                          onMudarCampos={(p) => mudarCamposAsaas(linha.asaas!.id, p)}
                           sugestao={sugestoes[`a:${linha.asaas.id}`]}
                           buscandoSugestao={sugestoesEmAndamento.has(`a:${linha.asaas.id}`)}
                           modoVinculo={modoParaAsaas(linha.asaas)}
