@@ -126,10 +126,19 @@ importa pra evitar colisão (ex.: `contas` vs `consultar_conta`).
 `valor` do lançamento já vem assinado — negativo para despesa, positivo para
 receita —, exatamente igual ao `value` do extrato Asaas. Isso simplifica a
 normalização: basta comparar os valores diretamente, sem inverter sinal em nenhum
-dos dois lados. `data_pagamento` (não `data_vencimento`) é o que marca um
-lançamento como realizado/baixado — `normalizarLancamento` em `granatum.server.ts`
-descarta lançamentos sem `data_pagamento`, porque só o que já foi baixado entra na
-conciliação.
+dos dois lados. Lançamento baixado entra pela `data_pagamento`; em aberto
+(a pagar/receber) entra pela `data_vencimento` (`pago: false`, o card mostra
+"vencimento, em aberto") — é o mesmo critério que o filtro de período da API
+já usa no regime caixa (padrão), confirmado com dados reais em 2026-09-24.
+
+**Conciliar dá baixa no Granatum**: todo par gravado com um lançamento em
+aberto (`pago: false`) chama `baixarNoGranatum` (`editar_lancamento` com
+`data_pagamento` = data do extrato do Asaas, registrado em
+`log_alteracoes_granatum`). Vale pros três caminhos: par automático em
+`buscarLancamentos` (se a baixa falhar, o par não é gravado e volta como
+sugestão), "Confirmar" sugestão e `FormConciliarManual` (os dois mandam
+`baixarEm` pro `confirmarPar`, que dá baixa antes de gravar o par — se falhar,
+nada é gravado).
 
 **Dedupe de criação**: todo lançamento criado no Granatum a partir de um item do
 Asaas grava `identificador_externo = <asaas_id>` — permite achar duplicata mesmo

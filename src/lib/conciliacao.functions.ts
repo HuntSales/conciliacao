@@ -40,6 +40,27 @@ async function contaConfigurada(empresaId: string): Promise<string> {
   return data.conta_id_granatum;
 }
 
+/**
+ * Dá baixa no Granatum de um lançamento em aberto que acabou de ser
+ * conciliado, usando a data do extrato do Asaas (quando o dinheiro de fato
+ * entrou/saiu) como data de pagamento. Registra no log de auditoria.
+ */
+async function baixarNoGranatum(
+  empresaId: string,
+  granatumId: string,
+  dataPagamento: string,
+  usuarioId: string | null | undefined,
+): Promise<void> {
+  await editarLancamentoGranatum(empresaId, { id: granatumId, dataPagamento });
+  await supabaseAdmin.from("log_alteracoes_granatum").insert({
+    empresa_id: empresaId,
+    lancamento_id: granatumId,
+    antes: { dataPagamento: null },
+    depois: { dataPagamento },
+    usuario_id: usuarioId ?? null,
+  });
+}
+
 export const listarCadastros = createServerFn({ method: "GET" })
   .middleware([requireEmpresa])
   .handler(async ({ context }) => {
@@ -118,9 +139,26 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
 
     const resultado = conciliar(candidatosAsaas, candidatosGranatum, data.toleranciaDias);
 
+    // Par automático com lançamento em aberto no Granatum: dá baixa nele com
+    // a data do Asaas. Se a baixa falhar, o par não é gravado — volta como
+    // sugestão pro usuário confirmar (e tentar a baixa de novo) na tela.
+    for (const p of resultado.pares) {
+      if (p.tipo !== "automatico") continue;
+      const g = granatum.find((x) => x.id === p.granatumId);
+      const a = asaas.find((x) => x.id === p.asaasId);
+      if (!g || !a || g.pago) continue;
+      try {
+        await baixarNoGranatum(empresaId, g.id, a.data, context.userId);
+        g.pago = true;
+        g.data = a.data;
+      } catch (erro) {
+        console.error("[conciliacao] falha ao dar baixa no Granatum:", erro);
+        p.tipo = "sugestao";
+      }
+    }
+
     const novosAutomaticos = resultado.pares.filter((p) => p.tipo === "automatico");
     if (novosAutomaticos.length > 0) {
-      const { data: userData } = await supabaseAdmin.auth.getUser();
       await supabaseAdmin.from("pares_conciliacao").upsert(
         novosAutomaticos.map((p) => {
           const g = granatum.find((x) => x.id === p.granatumId);
@@ -131,7 +169,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
             data: g?.data ?? data.dataInicio,
             valor: g?.valor ?? 0,
             tipo: "automatico" as const,
-            usuario_id: userData.user?.id ?? null,
+            usuario_id: context.userId ?? null,
           };
         }),
         { onConflict: "empresa_id,asaas_id" },
@@ -178,13 +216,21 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
           .length,
         saldoAsaas,
         saldoGranatum,
-        // Projeta o saldo do Granatum depois que os itens do Asaas ainda sem
-        // nenhum lançamento no Granatum forem criados (sugestão já é um
-        // lançamento real, só não confirmado — já está no saldo atual).
+        // Projeta o saldo do Granatum depois de conciliar tudo: entra o valor
+        // dos itens do Asaas ainda sem nenhum lançamento no Granatum (serão
+        // criados) e dos ligados a um lançamento ainda em aberto (serão
+        // baixados). Par com lançamento já baixado já está no saldo atual.
         saldoGranatumProjetado:
           saldoGranatum === null
             ? null
-            : saldoGranatum + itensAsaas.filter((a) => !a.tipoPar).reduce((s, a) => s + a.valor, 0),
+            : saldoGranatum +
+              itensAsaas
+                .filter((a) => {
+                  if (!a.tipoPar) return true;
+                  const g = granatum.find((x) => x.id === a.parGranatumId);
+                  return Boolean(g && !g.pago);
+                })
+                .reduce((s, a) => s + a.valor, 0),
       },
     };
   });
@@ -198,12 +244,23 @@ const confirmarParSchema = z.object({
   descricao: z.string().optional(),
   categoriaId: z.string().optional(),
   centroCustoId: z.string().nullable().optional(),
+  /** Lançamento do Granatum ainda em aberto: data (do Asaas) pra dar baixa. */
+  baixarEm: z.string().optional(),
 });
 
 export const confirmarPar = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
   .inputValidator((d: unknown) => confirmarParSchema.parse(d))
   .handler(async ({ data, context }) => {
+    if (data.baixarEm) {
+      try {
+        await baixarNoGranatum(context.empresaId, data.granatumId, data.baixarEm, context.userId);
+      } catch (erro) {
+        throw new Error(
+          `Falha ao dar baixa no Granatum: ${erro instanceof Error ? erro.message : "erro desconhecido"}`,
+        );
+      }
+    }
     const { error } = await supabaseAdmin.from("pares_conciliacao").upsert(
       {
         empresa_id: context.empresaId,

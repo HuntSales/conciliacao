@@ -104,9 +104,10 @@ export function FormConciliarManual({
           descricao,
           categoriaId,
           centroCustoId: centroCustoId || null,
+          ...(granatum.pago ? {} : { baixarEm: asaas.data }),
         },
       });
-      toast.success("Lançamentos conciliados");
+      toast.success(granatum.pago ? "Lançamentos conciliados" : "Conciliado e baixado no Granatum");
       onConciliado();
     } catch (erro) {
       toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar");
@@ -150,6 +151,13 @@ export function FormConciliarManual({
           {asaas.valor !== granatum.valor || asaas.data !== granatum.data ? (
             <p className="text-xs text-gold">
               Data e/ou valor não batem exatamente — confira antes de conciliar manualmente.
+            </p>
+          ) : null}
+
+          {!granatum.pago ? (
+            <p className="text-xs text-muted-foreground">
+              O lançamento está em aberto no Granatum — ao conciliar, ele será baixado com a data do
+              Asaas ({formatarDataCurta(asaas.data)}).
             </p>
           ) : null}
 

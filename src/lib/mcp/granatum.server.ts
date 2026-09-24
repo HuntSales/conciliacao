@@ -257,17 +257,23 @@ type LancamentoBruto = {
   categoria_id: number | string | null;
   centro_custo_lucro_id: number | string | null;
   descricao: string;
+  data_vencimento: string | null;
   data_pagamento: string | null;
   valor: string | number;
   identificador_externo: string | null;
 };
 
 function normalizarLancamento(l: LancamentoBruto): LancamentoGranatum | null {
-  if (!l.data_pagamento) return null; // só entram na conciliação lançamentos já baixados
+  // Em aberto (a pagar/receber) também entra, pela data de vencimento — mesmo
+  // critério do filtro de período da API no regime caixa (padrão): baixado
+  // cai no período pela data de pagamento, em aberto pela de vencimento.
+  const data = l.data_pagamento ?? l.data_vencimento;
+  if (!data) return null;
   const valor = typeof l.valor === "string" ? Number.parseFloat(l.valor) : l.valor;
   return {
     id: String(l.id),
-    data: l.data_pagamento,
+    data,
+    pago: Boolean(l.data_pagamento),
     descricao: l.descricao,
     valor,
     tipo: valor < 0 ? "despesa" : "receita",
@@ -423,6 +429,8 @@ export type EdicaoLancamentoGranatum = {
   descricao?: string | undefined;
   categoriaId?: string | undefined;
   centroCustoId?: string | null | undefined;
+  /** Preencher dá baixa (marca como pago/recebido) nesta data. */
+  dataPagamento?: string | undefined;
 };
 
 export async function editarLancamentoGranatum(
@@ -437,6 +445,7 @@ export async function editarLancamentoGranatum(
     ...(dados.centroCustoId !== undefined
       ? { centro_custo_lucro_id: dados.centroCustoId ? Number(dados.centroCustoId) : null }
       : {}),
+    ...(dados.dataPagamento !== undefined ? { data_pagamento: dados.dataPagamento } : {}),
   };
 
   if (via) {

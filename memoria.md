@@ -227,6 +227,19 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     editados) em cada card, em vez de uma categoria única pro lote. O lote
     antigo continua disponível como "Mesma categoria para todos".
 
+19. **Lançamentos do Granatum "sumindo" (2026-09-24)**: reportado pelo
+    William — filtrando o dia, nenhum lançamento do Granatum aparecia. Não era
+    conexão: `normalizarLancamento` descartava tudo sem `data_pagamento` (só
+    baixados entravam), e os do dia estavam "A pagar". Pedido: trazer pela
+    data de vencimento. Conferido com dados reais que o filtro
+    `data_inicio`/`data_fim` da API (regime caixa, padrão) já devolve os em
+    aberto pelo vencimento e os baixados pelo pagamento — então agora os em
+    aberto entram com `data = data_vencimento` e `pago: false`. Na mesma
+    leva, a pedido do William, conciliar um em aberto passou a dar baixa nele
+    no Granatum com a data do extrato do Asaas (inclusive nos pares
+    automáticos). O saldo projetado passou a contar também os pares com
+    lançamento ainda em aberto.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

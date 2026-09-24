@@ -8,7 +8,8 @@ export type LancamentoAsaas = {
 
 export type LancamentoGranatum = {
   id: string;
-  data: string; // data_pagamento
+  data: string; // data_pagamento se baixado, senão data_vencimento
+  pago: boolean; // false = ainda em aberto (a pagar/receber) no Granatum
   descricao: string;
   valor: number; // absoluto
   tipo: "receita" | "despesa";

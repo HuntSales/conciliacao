@@ -200,6 +200,7 @@ function ConciliacaoPage() {
           descricao: campos.descricao,
           categoriaId: campos.categoriaId ?? undefined,
           centroCustoId: campos.centroCustoId,
+          ...(granatum.pago ? {} : { baixarEm: asaas.data }),
         },
       });
     },

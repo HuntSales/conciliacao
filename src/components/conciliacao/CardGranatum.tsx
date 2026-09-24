@@ -124,7 +124,10 @@ export function CardGranatum({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{formatarDataCurta(item.data)}</p>
+        <p className="text-xs text-muted-foreground">
+          {formatarDataCurta(item.data)}
+          {item.pago ? null : " · vencimento, em aberto"}
+        </p>
         {badge(item.tipoPar)}
       </div>
 
