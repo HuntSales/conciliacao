@@ -55,7 +55,8 @@ cadastra empresas em `/admin` e o convite de acesso sai por e-mail (Resend).
 ### Multi-empresa (`empresas`, `profiles`, `user_roles`, `has_role()`)
 
 Todo dado de negócio (`integracoes_mcp`, `credenciais_fallback`, `conta_granatum`,
-`tool_mapping`, `pares_conciliacao`, `log_alteracoes_granatum`, `integracoes_ia`)
+`tool_mapping`, `pares_conciliacao`, `log_alteracoes_granatum`, `integracoes_ia`,
+`lancamentos_ignorados`)
 tem uma coluna `empresa_id not null`, com unique constraints e RLS escopados por
 empresa (`current_empresa_id()`, função `SECURITY DEFINER` que lê `profiles`,
 mesmo padrão do Multi MCPs). **Toda função em `asaas.server.ts`/`granatum.server.ts`/
@@ -180,6 +181,20 @@ categoria, reaproveitando o cache de sugestões da tela). Um único botão
 `CardAsaas.tsx`. O mesmo padrão de registrar categoria/centro/descrição vale
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 (ver seção de IA abaixo) mesmo quando o usuário só confirma sem editar nada.
+
+### Ignorar lançamento (`lancamentos_ignorados`, `DialogIgnorar.tsx`)
+
+Todo card sem par (Asaas ou Granatum) tem "Ignorar", que abre
+`DialogIgnorar` com **confirmação dupla** (pedido explícito: "Continuar" →
+"Sim, ignorar lançamento"). `ignorarLancamento` grava em
+`lancamentos_ignorados` (`unique(empresa_id, provedor, lancamento_id)`, com
+cópia de data/valor/descrição só pra exibição) e recusa se o item já tiver
+par. Em `buscarLancamentos`, item ignorado (`ignorado: true`) fica fora da
+engine de matching (nunca vira sugestão), dos pendentes do resumo, do saldo
+projetado e do pedido de sugestão de categoria; par gravado tem precedência
+sobre ignorado. Na tela só aparece no filtro "Ignorados", com "Voltar a
+considerar" (`restaurarLancamento`, apaga a linha). Nada é alterado no
+Asaas/Granatum.
 
 ### Criação em lote (`criarCadaUmAPartirDoAsaas`, `FormCriarLote.tsx`, `criarLoteAPartirDoAsaas`)
 

@@ -242,6 +242,19 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     automático com lançamento em aberto agora vira sugestão. O saldo projetado passou a contar também os pares com
     lançamento ainda em aberto.
 
+20. **"Salvar" não baixava + botão Ignorar (2026-09-24)**: o William achou
+    que um lançamento "estava no Asaas" e ficou "A receber" depois de clicar
+    em Salvar. Investigado: era o RS COMPANY … Hunt Pilot 10384 (R$ 2.268,90),
+    que **não** aparece no extrato do Asaas de 10 a 24/09 — e "Salvar" no
+    card do Granatum só edita descrição/categoria/centro, nunca baixa. Criar a
+    partir do Asaas já nasce pago/recebido (conferido: "Recebido" no Granatum).
+    Na mesma conversa, pediu o botão "Ignorar" com confirmação dupla — ver
+    `CLAUDE.md`. Migration `0006_lancamentos_ignorados.sql`. Atenção: o
+    `supabase` CLI desta máquina pode estar logado em outra conta (sem acesso
+    a este projeto) — `db push` falha com 403 `database_write`; e rodar
+    `supabase gen types ... > types.ts` com o CLI falhando **zera** o
+    `types.ts` (a saída de erro vai pro arquivo) — conferir antes de commitar.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

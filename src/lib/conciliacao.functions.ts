@@ -80,11 +80,14 @@ const periodoSchema = z.object({
 export type ItemAsaas = LancamentoAsaas & {
   parGranatumId: string | null;
   tipoPar: "automatico" | "manual" | "sugestao" | null;
+  /** Usuário mandou ignorar: fora da engine, dos pendentes e das sugestões. */
+  ignorado: boolean;
 };
 
 export type ItemGranatum = LancamentoGranatum & {
   parAsaasId: string | null;
   tipoPar: "automatico" | "manual" | "sugestao" | null;
+  ignorado: boolean;
 };
 
 export const buscarLancamentos = createServerFn({ method: "POST" })
@@ -104,15 +107,25 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
     const asaasIds = new Set(asaas.map((a) => a.id));
     const granatumIds = new Set(granatum.map((g) => g.id));
 
-    const { data: paresExistentes } = await supabaseAdmin
-      .from("pares_conciliacao")
-      .select("asaas_id, granatum_id, tipo")
-      .eq("empresa_id", empresaId)
-      .or(
-        `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
-          [...granatumIds].join(",") || '""'
-        })`,
-      );
+    const [{ data: paresExistentes }, { data: ignoradosRows }] = await Promise.all([
+      supabaseAdmin
+        .from("pares_conciliacao")
+        .select("asaas_id, granatum_id, tipo")
+        .eq("empresa_id", empresaId)
+        .or(
+          `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
+            [...granatumIds].join(",") || '""'
+          })`,
+        ),
+      asaasIds.size + granatumIds.size === 0
+        ? Promise.resolve({ data: [] as { provedor: string; lancamento_id: string }[] })
+        : supabaseAdmin
+            .from("lancamentos_ignorados")
+            .select("provedor, lancamento_id")
+            .eq("empresa_id", empresaId)
+            .in("lancamento_id", [...asaasIds, ...granatumIds]),
+    ]);
+    const ignorados = new Set((ignoradosRows ?? []).map((r) => `${r.provedor}:${r.lancamento_id}`));
 
     const paresPorAsaas = new Map<string, { granatumId: string; tipo: string }>();
     const paresPorGranatum = new Map<string, { asaasId: string; tipo: string }>();
@@ -121,8 +134,16 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
       paresPorGranatum.set(p.granatum_id, { asaasId: p.asaas_id, tipo: p.tipo });
     }
 
-    const asaasRestante = asaas.filter((a) => !paresPorAsaas.has(a.id));
-    const granatumRestante = granatum.filter((g) => !paresPorGranatum.has(g.id));
+    // Par já gravado tem precedência sobre "ignorado" (só dá pra ignorar
+    // item sem par, mas o par pode ter sido feito por outra pessoa depois).
+    const asaasIgnorado = (id: string) => !paresPorAsaas.has(id) && ignorados.has(`asaas:${id}`);
+    const granatumIgnorado = (id: string) =>
+      !paresPorGranatum.has(id) && ignorados.has(`granatum:${id}`);
+
+    const asaasRestante = asaas.filter((a) => !paresPorAsaas.has(a.id) && !asaasIgnorado(a.id));
+    const granatumRestante = granatum.filter(
+      (g) => !paresPorGranatum.has(g.id) && !granatumIgnorado(g.id),
+    );
 
     const candidatosAsaas: CandidatoAsaas[] = asaasRestante.map((a) => ({
       id: a.id,
@@ -182,6 +203,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         ...a,
         parGranatumId: par?.granatumId ?? null,
         tipoPar: (par?.tipo as ItemAsaas["tipoPar"]) ?? null,
+        ignorado: asaasIgnorado(a.id),
       };
     });
     const itensGranatum: ItemGranatum[] = granatum.map((g) => {
@@ -190,6 +212,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         ...g,
         parAsaasId: par?.asaasId ?? null,
         tipoPar: (par?.tipo as ItemGranatum["tipoPar"]) ?? null,
+        ignorado: granatumIgnorado(g.id),
       };
     });
 
@@ -202,21 +225,26 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         conciliadosAsaas: itensAsaas.filter((a) => a.tipoPar && a.tipoPar !== "sugestao").length,
         conciliadosGranatum: itensGranatum.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
           .length,
-        pendentesAsaas: itensAsaas.filter((a) => !a.tipoPar || a.tipoPar === "sugestao").length,
-        pendentesGranatum: itensGranatum.filter((g) => !g.tipoPar || g.tipoPar === "sugestao")
-          .length,
+        pendentesAsaas: itensAsaas.filter(
+          (a) => !a.ignorado && (!a.tipoPar || a.tipoPar === "sugestao"),
+        ).length,
+        pendentesGranatum: itensGranatum.filter(
+          (g) => !g.ignorado && (!g.tipoPar || g.tipoPar === "sugestao"),
+        ).length,
         saldoAsaas,
         saldoGranatum,
         // Projeta o saldo do Granatum depois de conciliar tudo: entra o valor
         // dos itens do Asaas ainda sem nenhum lançamento no Granatum (serão
         // criados) e dos ligados a um lançamento ainda em aberto (serão
-        // baixados). Par com lançamento já baixado já está no saldo atual.
+        // baixados). Par com lançamento já baixado já está no saldo atual;
+        // ignorado não entra.
         saldoGranatumProjetado:
           saldoGranatum === null
             ? null
             : saldoGranatum +
               itensAsaas
                 .filter((a) => {
+                  if (a.ignorado) return false;
                   if (!a.tipoPar) return true;
                   const g = granatum.find((x) => x.id === a.parGranatumId);
                   return Boolean(g && !g.pago);
@@ -224,6 +252,64 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
                 .reduce((s, a) => s + a.valor, 0),
       },
     };
+  });
+
+const ignorarSchema = z.object({
+  provedor: z.enum(["asaas", "granatum"]),
+  id: z.string(),
+  data: z.string(),
+  valor: z.number(),
+  descricao: z.string(),
+});
+
+/** Tira o lançamento da conciliação (pendentes, engine e sugestões). Reversível. */
+export const ignorarLancamento = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => ignorarSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: par } = await supabaseAdmin
+      .from("pares_conciliacao")
+      .select("id")
+      .eq("empresa_id", context.empresaId)
+      .eq(data.provedor === "asaas" ? "asaas_id" : "granatum_id", data.id)
+      .maybeSingle();
+    if (par)
+      throw new Error("Este lançamento já está conciliado — desfaça o par antes de ignorar.");
+
+    const { error } = await supabaseAdmin.from("lancamentos_ignorados").upsert(
+      {
+        empresa_id: context.empresaId,
+        provedor: data.provedor,
+        lancamento_id: data.id,
+        data: data.data,
+        valor: data.valor,
+        descricao: data.descricao,
+        usuario_id: context.userId,
+      },
+      { onConflict: "empresa_id,provedor,lancamento_id" },
+    );
+    if (error?.code === "PGRST205") {
+      // Migration 0006 ainda não aplicada no banco.
+      throw new Error("Ignorar lançamento ainda não está ativado no banco de dados.");
+    }
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+const restaurarSchema = z.object({ provedor: z.enum(["asaas", "granatum"]), id: z.string() });
+
+export const restaurarLancamento = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => restaurarSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await supabaseAdmin
+      .from("lancamentos_ignorados")
+      .delete()
+      .eq("empresa_id", context.empresaId)
+      .eq("provedor", data.provedor)
+      .eq("lancamento_id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 const confirmarParSchema = z.object({

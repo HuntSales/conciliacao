@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link2, Plus, X } from "lucide-react";
+import { EyeOff, Link2, Plus, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,7 +22,8 @@ import { folhas } from "@/lib/hierarquia";
 import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import { AvisoSugestao } from "./AvisoSugestao";
 
-function badge(tipoPar: ItemAsaas["tipoPar"]) {
+function badge(tipoPar: ItemAsaas["tipoPar"], ignorado: boolean) {
+  if (ignorado) return <span className="chip">Ignorado</span>;
   if (tipoPar === "automatico" || tipoPar === "manual") {
     return <span className="chip border-success/40 text-success">Conciliado</span>;
   }
@@ -52,6 +53,8 @@ export function CardAsaas({
   onIniciarVinculo,
   onCancelarVinculo,
   onLigarAqui,
+  onIgnorar,
+  onRestaurar,
 }: {
   item: ItemAsaas;
   categorias: CategoriaGranatum[];
@@ -68,6 +71,8 @@ export function CardAsaas({
   onIniciarVinculo: () => void;
   onCancelarVinculo: () => void;
   onLigarAqui: () => void;
+  onIgnorar: () => void;
+  onRestaurar: () => void;
 }) {
   // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
   // folhas da árvore são opções válidas, qualquer que seja a profundidade.
@@ -80,7 +85,7 @@ export function CardAsaas({
   const { descricao, categoriaId, centroCustoId } = campos;
   const [salvando, setSalvando] = useState(false);
 
-  const pendente = !item.tipoPar;
+  const pendente = !item.tipoPar && !item.ignorado;
   const editavel = pendente && modoVinculo === "nenhum";
 
   const criar = async () => {
@@ -135,7 +140,7 @@ export function CardAsaas({
             <p className="mt-0.5 text-sm text-body">{item.descricao}</p>
           </div>
         </div>
-        {badge(item.tipoPar)}
+        {badge(item.tipoPar, item.ignorado)}
       </div>
 
       {editavel ? (
@@ -204,6 +209,9 @@ export function CardAsaas({
               </Button>
             ) : (
               <>
+                <Button variant="ghostCorp" size="sm" onClick={onIgnorar}>
+                  <EyeOff /> Ignorar
+                </Button>
                 <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
                   <Link2 /> Ligar
                 </Button>
@@ -213,6 +221,10 @@ export function CardAsaas({
               </>
             )}
           </div>
+        ) : item.ignorado ? (
+          <Button variant="ghostCorp" size="sm" onClick={onRestaurar}>
+            <RotateCcw /> Voltar a considerar
+          </Button>
         ) : null}
       </div>
     </div>

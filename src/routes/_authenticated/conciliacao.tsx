@@ -12,13 +12,16 @@ import { CardAsaas, type CamposAsaas, type ModoVinculo } from "@/components/conc
 import { CardGranatum, type CamposGranatum } from "@/components/conciliacao/CardGranatum";
 import { FormConciliarManual } from "@/components/conciliacao/FormConciliarManual";
 import { FormCriarLote } from "@/components/conciliacao/FormCriarLote";
+import { DialogIgnorar, type AlvoIgnorar } from "@/components/conciliacao/DialogIgnorar";
 import {
   buscarLancamentos,
   confirmarPar,
   criarCadaUmAPartirDoAsaas,
   desfazerPar,
   editarLancamento,
+  ignorarLancamento,
   listarCadastros,
+  restaurarLancamento,
   sugerirEmLote,
   type ItemAsaas,
   type ItemGranatum,
@@ -33,7 +36,8 @@ export const Route = createFileRoute("/_authenticated/conciliacao")({
   component: ConciliacaoPage,
 });
 
-type FiltroRapido = "todos" | "conciliados" | "pendentes_asaas" | "pendentes_granatum";
+type FiltroRapido =
+  "todos" | "conciliados" | "pendentes_asaas" | "pendentes_granatum" | "ignorados";
 
 type Linha = { asaas: ItemAsaas | null; granatum: ItemGranatum | null };
 
@@ -122,10 +126,10 @@ function ConciliacaoPage() {
     if (!d) return;
     const itens = [
       ...d.asaas
-        .filter((a) => !a.tipoPar)
+        .filter((a) => !a.tipoPar && !a.ignorado)
         .map((a) => ({ chave: `a:${a.id}`, descricao: a.descricao, valor: a.valor, tipo: a.tipo })),
       ...d.granatum
-        .filter((g) => !g.categoriaId)
+        .filter((g) => !g.categoriaId && !g.ignorado)
         .map((g) => ({ chave: `g:${g.id}`, descricao: g.descricao, valor: g.valor, tipo: g.tipo })),
     ].filter((i) => i.descricao.trim() && !sugestoesPedidas.current.has(i.chave));
     if (itens.length === 0) return;
@@ -234,6 +238,9 @@ function ConciliacaoPage() {
   }, [dados, rejeitados]);
 
   const linhasFiltradas = linhas.filter((l) => {
+    const ignorada = Boolean(l.asaas?.ignorado || l.granatum?.ignorado);
+    if (filtro === "ignorados") return ignorada;
+    if (ignorada) return false;
     if (filtro === "todos") return true;
     if (filtro === "conciliados") return Boolean(l.asaas && l.granatum);
     if (filtro === "pendentes_asaas") return Boolean(l.asaas && !l.granatum);
@@ -242,15 +249,43 @@ function ConciliacaoPage() {
 
   const cancelarVinculo = () => setOrigemVinculo(null);
 
+  const [paraIgnorar, setParaIgnorar] = useState<AlvoIgnorar | null>(null);
+
+  const confirmarIgnorar = async (alvo: AlvoIgnorar) => {
+    try {
+      await ignorarLancamento({ data: alvo });
+      toast.success("Lançamento ignorado");
+      setSelecionadosLote((prev) => {
+        const novo = new Set(prev);
+        novo.delete(alvo.id);
+        return novo;
+      });
+      setParaIgnorar(null);
+      invalidarBusca();
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Falha ao ignorar");
+    }
+  };
+
+  const restaurar = async (provedor: "asaas" | "granatum", id: string) => {
+    try {
+      await restaurarLancamento({ data: { provedor, id } });
+      toast.success("Lançamento voltou pra conciliação");
+      invalidarBusca();
+    } catch (erro) {
+      toast.error(erro instanceof Error ? erro.message : "Falha ao restaurar");
+    }
+  };
+
   const modoParaAsaas = (item: ItemAsaas): ModoVinculo => {
-    if (item.tipoPar) return "nenhum";
+    if (item.tipoPar || item.ignorado) return "nenhum";
     if (origemVinculo?.lado === "asaas" && origemVinculo.item.id === item.id) return "origem";
     if (origemVinculo?.lado === "granatum") return "alvo";
     return "nenhum";
   };
 
   const modoParaGranatum = (item: ItemGranatum): ModoVinculo => {
-    if (item.tipoPar) return "nenhum";
+    if (item.tipoPar || item.ignorado) return "nenhum";
     if (origemVinculo?.lado === "granatum" && origemVinculo.item.id === item.id) return "origem";
     if (origemVinculo?.lado === "asaas") return "alvo";
     return "nenhum";
@@ -281,7 +316,7 @@ function ConciliacaoPage() {
 
   const pendentesAsaasVisiveis = linhasFiltradas
     .map((l) => l.asaas)
-    .filter((a): a is ItemAsaas => Boolean(a && !a.tipoPar));
+    .filter((a): a is ItemAsaas => Boolean(a && !a.tipoPar && !a.ignorado));
   const todosPendentesSelecionados =
     pendentesAsaasVisiveis.length > 0 &&
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
@@ -377,6 +412,7 @@ function ConciliacaoPage() {
                   ["conciliados", "Conciliados"],
                   ["pendentes_asaas", "Pendentes Asaas"],
                   ["pendentes_granatum", "Pendentes Granatum"],
+                  ["ignorados", "Ignorados"],
                 ] as const
               ).map(([valor, rotulo]) => (
                 <Button
@@ -495,6 +531,16 @@ function ConciliacaoPage() {
                           }
                           onCancelarVinculo={cancelarVinculo}
                           onLigarAqui={() => ligarComAsaasAlvo(linha.asaas!)}
+                          onIgnorar={() =>
+                            setParaIgnorar({
+                              provedor: "asaas",
+                              id: linha.asaas!.id,
+                              data: linha.asaas!.data,
+                              valor: linha.asaas!.valor,
+                              descricao: linha.asaas!.descricao,
+                            })
+                          }
+                          onRestaurar={() => restaurar("asaas", linha.asaas!.id)}
                         />
                       ) : (
                         <div className="h-full rounded-none border border-dashed border-border/50" />
@@ -535,6 +581,16 @@ function ConciliacaoPage() {
                           }
                           onCancelarVinculo={cancelarVinculo}
                           onLigarAqui={() => ligarComGranatumAlvo(linha.granatum!)}
+                          onIgnorar={() =>
+                            setParaIgnorar({
+                              provedor: "granatum",
+                              id: linha.granatum!.id,
+                              data: linha.granatum!.data,
+                              valor: linha.granatum!.valor,
+                              descricao: linha.granatum!.descricao,
+                            })
+                          }
+                          onRestaurar={() => restaurar("granatum", linha.granatum!.id)}
                           onDesfazer={
                             linha.asaas
                               ? () => desfazer.mutate({ data: { asaasId: linha.asaas!.id } })
@@ -593,6 +649,13 @@ function ConciliacaoPage() {
           setParEmDialogo(null);
           invalidarBusca();
         }}
+      />
+
+      <DialogIgnorar
+        key={paraIgnorar ? `${paraIgnorar.provedor}:${paraIgnorar.id}` : "vazio"}
+        alvo={paraIgnorar}
+        onFechar={() => setParaIgnorar(null)}
+        onConfirmar={confirmarIgnorar}
       />
 
       <FormCriarLote

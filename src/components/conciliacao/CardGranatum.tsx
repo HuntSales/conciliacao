@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Link2, Undo2, X } from "lucide-react";
+import { Check, EyeOff, Link2, RotateCcw, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,8 @@ export type CamposGranatum = {
   centroCustoId: string | null;
 };
 
-function badge(tipoPar: ItemGranatum["tipoPar"]) {
+function badge(tipoPar: ItemGranatum["tipoPar"], ignorado: boolean) {
+  if (ignorado) return <span className="chip">Ignorado</span>;
   if (tipoPar === "automatico" || tipoPar === "manual") {
     return <span className="chip border-success/40 text-success">Conciliado</span>;
   }
@@ -52,6 +53,8 @@ export function CardGranatum({
   onCancelarVinculo,
   onLigarAqui,
   onSalvo,
+  onIgnorar,
+  onRestaurar,
 }: {
   item: ItemGranatum;
   categorias: CategoriaGranatum[];
@@ -68,6 +71,8 @@ export function CardGranatum({
   onCancelarVinculo: () => void;
   onLigarAqui: () => void;
   onSalvo: () => void;
+  onIgnorar: () => void;
+  onRestaurar: () => void;
 }) {
   // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
   // folhas da árvore são opções válidas, qualquer que seja a profundidade.
@@ -128,7 +133,7 @@ export function CardGranatum({
           {formatarDataCurta(item.data)}
           {item.pago ? null : " · vencimento, em aberto"}
         </p>
-        {badge(item.tipoPar)}
+        {badge(item.tipoPar, item.ignorado)}
       </div>
 
       <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
@@ -202,7 +207,11 @@ export function CardGranatum({
               <Undo2 /> Desfazer
             </Button>
           ) : null}
-          {!item.tipoPar ? (
+          {item.ignorado ? (
+            <Button variant="ghostCorp" size="sm" onClick={onRestaurar}>
+              <RotateCcw /> Voltar a considerar
+            </Button>
+          ) : !item.tipoPar ? (
             modoVinculo === "alvo" ? (
               <Button variant="corp" size="sm" onClick={onLigarAqui}>
                 <Link2 /> Ligar aqui
@@ -212,14 +221,21 @@ export function CardGranatum({
                 <X /> Cancelar
               </Button>
             ) : (
-              <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
-                <Link2 /> Ligar
-              </Button>
+              <>
+                <Button variant="ghostCorp" size="sm" onClick={onIgnorar}>
+                  <EyeOff /> Ignorar
+                </Button>
+                <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
+                  <Link2 /> Ligar
+                </Button>
+              </>
             )
           ) : null}
-          <Button variant="corpOutline" size="sm" disabled={salvando} onClick={salvar}>
-            {salvando ? "Salvando" : "Salvar"}
-          </Button>
+          {item.ignorado ? null : (
+            <Button variant="corpOutline" size="sm" disabled={salvando} onClick={salvar}>
+              {salvando ? "Salvando" : "Salvar"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

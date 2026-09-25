@@ -218,6 +218,50 @@ export type Database = {
           },
         ];
       };
+      lancamentos_ignorados: {
+        Row: {
+          criado_em: string;
+          data: string | null;
+          descricao: string | null;
+          empresa_id: string;
+          id: string;
+          lancamento_id: string;
+          provedor: string;
+          usuario_id: string | null;
+          valor: number | null;
+        };
+        Insert: {
+          criado_em?: string;
+          data?: string | null;
+          descricao?: string | null;
+          empresa_id: string;
+          id?: string;
+          lancamento_id: string;
+          provedor: string;
+          usuario_id?: string | null;
+          valor?: number | null;
+        };
+        Update: {
+          criado_em?: string;
+          data?: string | null;
+          descricao?: string | null;
+          empresa_id?: string;
+          id?: string;
+          lancamento_id?: string;
+          provedor?: string;
+          usuario_id?: string | null;
+          valor?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lancamentos_ignorados_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       log_alteracoes_granatum: {
         Row: {
           antes: Json | null;
