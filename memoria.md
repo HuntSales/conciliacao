@@ -236,8 +236,10 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     aberto pelo vencimento e os baixados pelo pagamento — então agora os em
     aberto entram com `data = data_vencimento` e `pago: false`. Na mesma
     leva, a pedido do William, conciliar um em aberto passou a dar baixa nele
-    no Granatum com a data do extrato do Asaas (inclusive nos pares
-    automáticos). O saldo projetado passou a contar também os pares com
+    no Granatum com a data do extrato do Asaas. Primeira versão também
+    baixava sozinha nos pares automáticos; o William pediu pra baixa só
+    acontecer por clique (Confirmar, ligar manualmente ou criar), então par
+    automático com lançamento em aberto agora vira sugestão. O saldo projetado passou a contar também os pares com
     lançamento ainda em aberto.
 
 ## Estado atual e pendências conhecidas

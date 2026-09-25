@@ -131,14 +131,15 @@ dos dois lados. Lançamento baixado entra pela `data_pagamento`; em aberto
 "vencimento, em aberto") — é o mesmo critério que o filtro de período da API
 já usa no regime caixa (padrão), confirmado com dados reais em 2026-09-24.
 
-**Conciliar dá baixa no Granatum**: todo par gravado com um lançamento em
-aberto (`pago: false`) chama `baixarNoGranatum` (`editar_lancamento` com
-`data_pagamento` = data do extrato do Asaas, registrado em
-`log_alteracoes_granatum`). Vale pros três caminhos: par automático em
-`buscarLancamentos` (se a baixa falhar, o par não é gravado e volta como
-sugestão), "Confirmar" sugestão e `FormConciliarManual` (os dois mandam
-`baixarEm` pro `confirmarPar`, que dá baixa antes de gravar o par — se falhar,
-nada é gravado).
+**Baixa no Granatum só por clique do usuário** (pedido explícito): conciliar
+um lançamento em aberto (`pago: false`) chama `baixarNoGranatum`
+(`editar_lancamento` com `data_pagamento` = data do extrato do Asaas,
+registrado em `log_alteracoes_granatum`) — mas só a partir de "Confirmar"
+sugestão ou `FormConciliarManual` (os dois mandam `baixarEm` pro
+`confirmarPar`, que dá baixa antes de gravar o par; se falhar, nada é
+gravado). Criar a partir do Asaas já nasce baixado. A engine nunca grava
+sozinha um par com lançamento em aberto: em `buscarLancamentos`, o que seria
+automático vira sugestão, pra baixa depender do clique em "Confirmar".
 
 **Dedupe de criação**: todo lançamento criado no Granatum a partir de um item do
 Asaas grava `identificador_externo = <asaas_id>` — permite achar duplicata mesmo

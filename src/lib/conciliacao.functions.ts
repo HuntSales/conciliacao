@@ -139,22 +139,13 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
 
     const resultado = conciliar(candidatosAsaas, candidatosGranatum, data.toleranciaDias);
 
-    // Par automático com lançamento em aberto no Granatum: dá baixa nele com
-    // a data do Asaas. Se a baixa falhar, o par não é gravado — volta como
-    // sugestão pro usuário confirmar (e tentar a baixa de novo) na tela.
+    // Baixa no Granatum só acontece por clique do usuário. Par automático
+    // com lançamento ainda em aberto não é gravado sozinho: vira sugestão, e
+    // "Confirmar" dá a baixa (via `baixarEm` em `confirmarPar`).
     for (const p of resultado.pares) {
       if (p.tipo !== "automatico") continue;
       const g = granatum.find((x) => x.id === p.granatumId);
-      const a = asaas.find((x) => x.id === p.asaasId);
-      if (!g || !a || g.pago) continue;
-      try {
-        await baixarNoGranatum(empresaId, g.id, a.data, context.userId);
-        g.pago = true;
-        g.data = a.data;
-      } catch (erro) {
-        console.error("[conciliacao] falha ao dar baixa no Granatum:", erro);
-        p.tipo = "sugestao";
-      }
+      if (g && !g.pago) p.tipo = "sugestao";
     }
 
     const novosAutomaticos = resultado.pares.filter((p) => p.tipo === "automatico");
