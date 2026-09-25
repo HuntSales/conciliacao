@@ -255,45 +255,82 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
   });
 
 const ignorarSchema = z.object({
-  provedor: z.enum(["asaas", "granatum"]),
-  id: z.string(),
-  data: z.string(),
-  valor: z.number(),
-  descricao: z.string(),
+  itens: z
+    .array(
+      z.object({
+        provedor: z.enum(["asaas", "granatum"]),
+        id: z.string(),
+        data: z.string(),
+        valor: z.number(),
+        descricao: z.string(),
+      }),
+    )
+    .min(1)
+    .max(500),
 });
 
-/** Tira o lançamento da conciliação (pendentes, engine e sugestões). Reversível. */
-export const ignorarLancamento = createServerFn({ method: "POST" })
+export type ResultadoIgnorar = {
+  provedor: "asaas" | "granatum";
+  id: string;
+  ok: boolean;
+  erro?: string;
+};
+
+/**
+ * Tira um ou vários lançamentos da conciliação (pendentes, engine e
+ * sugestões). Reversível. Item que já tem par é recusado individualmente,
+ * sem derrubar o resto.
+ */
+export const ignorarLancamentos = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
   .inputValidator((d: unknown) => ignorarSchema.parse(d))
-  .handler(async ({ data, context }) => {
-    const { data: par } = await supabaseAdmin
+  .handler(async ({ data, context }): Promise<ResultadoIgnorar[]> => {
+    const idsAsaas = data.itens.filter((i) => i.provedor === "asaas").map((i) => i.id);
+    const idsGranatum = data.itens.filter((i) => i.provedor === "granatum").map((i) => i.id);
+    const { data: pares } = await supabaseAdmin
       .from("pares_conciliacao")
-      .select("id")
+      .select("asaas_id, granatum_id")
       .eq("empresa_id", context.empresaId)
-      .eq(data.provedor === "asaas" ? "asaas_id" : "granatum_id", data.id)
-      .maybeSingle();
-    if (par)
-      throw new Error("Este lançamento já está conciliado — desfaça o par antes de ignorar.");
+      .or(
+        `asaas_id.in.(${idsAsaas.join(",") || '""'}),granatum_id.in.(${
+          idsGranatum.join(",") || '""'
+        })`,
+      );
+    const conciliados = new Set([
+      ...(pares ?? []).map((p) => `asaas:${p.asaas_id}`),
+      ...(pares ?? []).map((p) => `granatum:${p.granatum_id}`),
+    ]);
 
-    const { error } = await supabaseAdmin.from("lancamentos_ignorados").upsert(
-      {
-        empresa_id: context.empresaId,
-        provedor: data.provedor,
-        lancamento_id: data.id,
-        data: data.data,
-        valor: data.valor,
-        descricao: data.descricao,
-        usuario_id: context.userId,
-      },
-      { onConflict: "empresa_id,provedor,lancamento_id" },
-    );
-    if (error?.code === "PGRST205") {
-      // Migration 0006 ainda não aplicada no banco.
-      throw new Error("Ignorar lançamento ainda não está ativado no banco de dados.");
+    const validos = data.itens.filter((i) => !conciliados.has(`${i.provedor}:${i.id}`));
+    let erroGravacao: string | null = null;
+    if (validos.length > 0) {
+      const { error } = await supabaseAdmin.from("lancamentos_ignorados").upsert(
+        validos.map((i) => ({
+          empresa_id: context.empresaId,
+          provedor: i.provedor,
+          lancamento_id: i.id,
+          data: i.data,
+          valor: i.valor,
+          descricao: i.descricao,
+          usuario_id: context.userId,
+        })),
+        { onConflict: "empresa_id,provedor,lancamento_id" },
+      );
+      if (error) erroGravacao = error.message;
     }
-    if (error) throw new Error(error.message);
-    return { ok: true };
+
+    return data.itens.map((i) => {
+      if (conciliados.has(`${i.provedor}:${i.id}`)) {
+        return {
+          provedor: i.provedor,
+          id: i.id,
+          ok: false,
+          erro: "Já está conciliado — desfaça o par antes de ignorar.",
+        };
+      }
+      if (erroGravacao) return { provedor: i.provedor, id: i.id, ok: false, erro: erroGravacao };
+      return { provedor: i.provedor, id: i.id, ok: true };
+    });
   });
 
 const restaurarSchema = z.object({ provedor: z.enum(["asaas", "granatum"]), id: z.string() });

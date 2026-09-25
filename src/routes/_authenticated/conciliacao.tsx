@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, Layers, Plus, RefreshCw, X } from "lucide-react";
+import { CheckSquare, EyeOff, Layers, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
   criarCadaUmAPartirDoAsaas,
   desfazerPar,
   editarLancamento,
-  ignorarLancamento,
+  ignorarLancamentos,
   listarCadastros,
   restaurarLancamento,
   sugerirEmLote,
@@ -78,6 +78,9 @@ function ConciliacaoPage() {
   } | null>(null);
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
   const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
+  // Seleção do lado do Granatum: só serve pra "Ignorar todos" (criar em lote
+  // é só a partir do Asaas).
+  const [selecionadosGranatum, setSelecionadosGranatum] = useState<Set<string>>(new Set());
   const [loteAberto, setLoteAberto] = useState(false);
   const superAdmin = useSuperAdmin();
   const nav = montarNav("conciliacao", superAdmin.data ?? false);
@@ -160,6 +163,7 @@ function ConciliacaoPage() {
     // cima, fácil de não notar depois de rolar a tela).
     setOrigemVinculo(null);
     setSelecionadosLote(new Set());
+    setSelecionadosGranatum(new Set());
     busca.mutate();
   };
 
@@ -249,17 +253,31 @@ function ConciliacaoPage() {
 
   const cancelarVinculo = () => setOrigemVinculo(null);
 
-  const [paraIgnorar, setParaIgnorar] = useState<AlvoIgnorar | null>(null);
+  const [paraIgnorar, setParaIgnorar] = useState<AlvoIgnorar[] | null>(null);
 
-  const confirmarIgnorar = async (alvo: AlvoIgnorar) => {
+  const confirmarIgnorar = async (alvos: AlvoIgnorar[]) => {
     try {
-      await ignorarLancamento({ data: alvo });
-      toast.success("Lançamento ignorado");
-      setSelecionadosLote((prev) => {
+      const resultados = await ignorarLancamentos({ data: { itens: alvos } });
+      const falhas = resultados.filter((r) => !r.ok);
+      if (falhas.length === 0) {
+        toast.success(
+          resultados.length === 1
+            ? "Lançamento ignorado"
+            : `${resultados.length} lançamentos ignorados`,
+        );
+      } else {
+        toast.error(
+          `${resultados.length - falhas.length} ignorado(s), ${falhas.length} não: ${falhas[0]?.erro ?? ""}`,
+        );
+      }
+      const ok = resultados.filter((r) => r.ok);
+      const tirar = (provedor: "asaas" | "granatum") => (prev: Set<string>) => {
         const novo = new Set(prev);
-        novo.delete(alvo.id);
+        for (const r of ok) if (r.provedor === provedor) novo.delete(r.id);
         return novo;
-      });
+      };
+      setSelecionadosLote(tirar("asaas"));
+      setSelecionadosGranatum(tirar("granatum"));
       setParaIgnorar(null);
       invalidarBusca();
     } catch (erro) {
@@ -313,6 +331,37 @@ function ConciliacaoPage() {
   };
 
   const itensLote = (dados?.asaas ?? []).filter((a) => selecionadosLote.has(a.id));
+  const itensGranatumSelecionados = (dados?.granatum ?? []).filter((g) =>
+    selecionadosGranatum.has(g.id),
+  );
+  const totalSelecionados = selecionadosLote.size + selecionadosGranatum.size;
+
+  const alternarSelecaoGranatum = (id: string, marcado: boolean) => {
+    setSelecionadosGranatum((prev) => {
+      const novo = new Set(prev);
+      if (marcado) novo.add(id);
+      else novo.delete(id);
+      return novo;
+    });
+  };
+
+  const iniciarIgnorarTodos = () =>
+    setParaIgnorar([
+      ...itensLote.map((a) => ({
+        provedor: "asaas" as const,
+        id: a.id,
+        data: a.data,
+        valor: a.valor,
+        descricao: a.descricao,
+      })),
+      ...itensGranatumSelecionados.map((g) => ({
+        provedor: "granatum" as const,
+        id: g.id,
+        data: g.data,
+        valor: g.valor,
+        descricao: g.descricao,
+      })),
+    ]);
 
   const pendentesAsaasVisiveis = linhasFiltradas
     .map((l) => l.asaas)
@@ -320,6 +369,12 @@ function ConciliacaoPage() {
   const todosPendentesSelecionados =
     pendentesAsaasVisiveis.length > 0 &&
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
+  const pendentesGranatumVisiveis = linhasFiltradas
+    .map((l) => l.granatum)
+    .filter((g): g is ItemGranatum => Boolean(g && !g.tipoPar && !g.ignorado));
+  const podeSelecionarMais =
+    pendentesAsaasVisiveis.some((a) => !selecionadosLote.has(a.id)) ||
+    pendentesGranatumVisiveis.some((g) => !selecionadosGranatum.has(g.id));
 
   const criarTodos = useMutation({
     mutationFn: async (itens: ItemAsaas[]) =>
@@ -424,18 +479,19 @@ function ConciliacaoPage() {
                   {rotulo}
                 </Button>
               ))}
-              {!origemVinculo &&
-              pendentesAsaasVisiveis.length > 0 &&
-              !todosPendentesSelecionados ? (
+              {!origemVinculo && podeSelecionarMais ? (
                 <Button
                   variant="ghostCorp"
                   size="sm"
                   className="ml-auto"
-                  onClick={() =>
+                  onClick={() => {
                     setSelecionadosLote(
                       (prev) => new Set([...prev, ...pendentesAsaasVisiveis.map((a) => a.id)]),
-                    )
-                  }
+                    );
+                    setSelecionadosGranatum(
+                      (prev) => new Set([...prev, ...pendentesGranatumVisiveis.map((g) => g.id)]),
+                    );
+                  }}
                 >
                   <CheckSquare /> Selecionar todos os pendentes
                 </Button>
@@ -459,38 +515,56 @@ function ConciliacaoPage() {
               </div>
             ) : null}
 
-            {selecionadosLote.size > 0 ? (
+            {totalSelecionados > 0 ? (
               <div className="corp-card fade-up sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
                 <p className="text-sm text-body">
-                  <strong className="text-foreground">{selecionadosLote.size}</strong> lançamento(s)
-                  do Asaas selecionado(s). "Criar" usa a descrição, categoria e centro de custo de
-                  cada card.
+                  <strong className="text-foreground">{totalSelecionados}</strong> lançamento(s)
+                  selecionado(s)
+                  {selecionadosLote.size > 0 && selecionadosGranatum.size > 0
+                    ? ` — ${selecionadosLote.size} do Asaas e ${selecionadosGranatum.size} do Granatum`
+                    : selecionadosLote.size > 0
+                      ? " do Asaas"
+                      : " do Granatum"}
+                  .
+                  {selecionadosLote.size > 0
+                    ? ' "Criar" usa a descrição, categoria e centro de custo de cada card do Asaas.'
+                    : null}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="ghostCorp"
                     size="sm"
-                    onClick={() => setSelecionadosLote(new Set())}
+                    onClick={() => {
+                      setSelecionadosLote(new Set());
+                      setSelecionadosGranatum(new Set());
+                    }}
                   >
                     <X /> Limpar seleção
                   </Button>
-                  <Button variant="corpOutline" size="sm" onClick={() => setLoteAberto(true)}>
-                    <Layers /> Mesma categoria para todos
+                  <Button variant="ghostCorp" size="sm" onClick={iniciarIgnorarTodos}>
+                    <EyeOff /> Ignorar {totalSelecionados === 1 ? "selecionado" : "todos"}
                   </Button>
-                  <Button
-                    variant="corp"
-                    size="sm"
-                    disabled={criarTodos.isPending}
-                    onClick={iniciarCriarTodos}
-                  >
-                    <Plus />{" "}
-                    {criarTodos.isPending
-                      ? "Criando"
-                      : todosPendentesSelecionados &&
-                          selecionadosLote.size === pendentesAsaasVisiveis.length
-                        ? "Criar todos"
-                        : `Criar ${selecionadosLote.size} selecionado(s)`}
-                  </Button>
+                  {selecionadosLote.size > 0 ? (
+                    <>
+                      <Button variant="corpOutline" size="sm" onClick={() => setLoteAberto(true)}>
+                        <Layers /> Mesma categoria para todos
+                      </Button>
+                      <Button
+                        variant="corp"
+                        size="sm"
+                        disabled={criarTodos.isPending}
+                        onClick={iniciarCriarTodos}
+                      >
+                        <Plus />{" "}
+                        {criarTodos.isPending
+                          ? "Criando"
+                          : todosPendentesSelecionados &&
+                              selecionadosLote.size === pendentesAsaasVisiveis.length
+                            ? "Criar todos"
+                            : `Criar ${selecionadosLote.size} selecionado(s)`}
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -532,13 +606,15 @@ function ConciliacaoPage() {
                           onCancelarVinculo={cancelarVinculo}
                           onLigarAqui={() => ligarComAsaasAlvo(linha.asaas!)}
                           onIgnorar={() =>
-                            setParaIgnorar({
-                              provedor: "asaas",
-                              id: linha.asaas!.id,
-                              data: linha.asaas!.data,
-                              valor: linha.asaas!.valor,
-                              descricao: linha.asaas!.descricao,
-                            })
+                            setParaIgnorar([
+                              {
+                                provedor: "asaas",
+                                id: linha.asaas!.id,
+                                data: linha.asaas!.data,
+                                valor: linha.asaas!.valor,
+                                descricao: linha.asaas!.descricao,
+                              },
+                            ])
                           }
                           onRestaurar={() => restaurar("asaas", linha.asaas!.id)}
                         />
@@ -582,15 +658,23 @@ function ConciliacaoPage() {
                           onCancelarVinculo={cancelarVinculo}
                           onLigarAqui={() => ligarComGranatumAlvo(linha.granatum!)}
                           onIgnorar={() =>
-                            setParaIgnorar({
-                              provedor: "granatum",
-                              id: linha.granatum!.id,
-                              data: linha.granatum!.data,
-                              valor: linha.granatum!.valor,
-                              descricao: linha.granatum!.descricao,
-                            })
+                            setParaIgnorar([
+                              {
+                                provedor: "granatum",
+                                id: linha.granatum!.id,
+                                data: linha.granatum!.data,
+                                valor: linha.granatum!.valor,
+                                descricao: linha.granatum!.descricao,
+                              },
+                            ])
                           }
                           onRestaurar={() => restaurar("granatum", linha.granatum!.id)}
+                          selecionado={selecionadosGranatum.has(linha.granatum.id)}
+                          onSelecionar={
+                            origemVinculo
+                              ? undefined
+                              : (m) => alternarSelecaoGranatum(linha.granatum!.id, m)
+                          }
                           onDesfazer={
                             linha.asaas
                               ? () => desfazer.mutate({ data: { asaasId: linha.asaas!.id } })
@@ -652,8 +736,8 @@ function ConciliacaoPage() {
       />
 
       <DialogIgnorar
-        key={paraIgnorar ? `${paraIgnorar.provedor}:${paraIgnorar.id}` : "vazio"}
-        alvo={paraIgnorar}
+        key={paraIgnorar ? paraIgnorar.map((a) => `${a.provedor}:${a.id}`).join(",") : "vazio"}
+        alvos={paraIgnorar}
         onFechar={() => setParaIgnorar(null)}
         onConfirmar={confirmarIgnorar}
       />

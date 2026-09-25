@@ -255,6 +255,12 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     `supabase gen types ... > types.ts` com o CLI falhando **zera** o
     `types.ts` (a saída de erro vai pro arquivo) — conferir antes de commitar.
 
+21. **"Ignorar todos" (2026-09-25)**: pedido do William — selecionar vários
+    lançamentos e ignorar de uma vez. Cards do Granatum ganharam checkbox, a
+    faixa de seleção ganhou "Ignorar todos" (Asaas + Granatum juntos, mesma
+    confirmação dupla listando todos). Migration 0006 aplicada em 2026-09-25
+    depois de trocar o login do `supabase` CLI pra conta dona do projeto.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

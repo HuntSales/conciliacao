@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, EyeOff, Link2, RotateCcw, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,6 +56,8 @@ export function CardGranatum({
   onSalvo,
   onIgnorar,
   onRestaurar,
+  selecionado,
+  onSelecionar,
 }: {
   item: ItemGranatum;
   categorias: CategoriaGranatum[];
@@ -73,6 +76,9 @@ export function CardGranatum({
   onSalvo: () => void;
   onIgnorar: () => void;
   onRestaurar: () => void;
+  selecionado?: boolean | undefined;
+  /** Some enquanto uma ligação manual está em andamento. */
+  onSelecionar?: ((marcado: boolean) => void) | undefined;
 }) {
   // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
   // folhas da árvore são opções válidas, qualquer que seja a profundidade.
@@ -129,10 +135,18 @@ export function CardGranatum({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {formatarDataCurta(item.data)}
-          {item.pago ? null : " · vencimento, em aberto"}
-        </p>
+        <div className="flex items-center gap-3">
+          {!item.tipoPar && !item.ignorado && onSelecionar ? (
+            <Checkbox
+              checked={selecionado ?? false}
+              onCheckedChange={(v) => onSelecionar(Boolean(v))}
+            />
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {formatarDataCurta(item.data)}
+            {item.pago ? null : " · vencimento, em aberto"}
+          </p>
+        </div>
         {badge(item.tipoPar, item.ignorado)}
       </div>
 
