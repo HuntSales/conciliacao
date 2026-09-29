@@ -645,14 +645,18 @@ function chaveDescricao(texto: string): string {
  * vez só pra todo o lote; (2) busca textual no Granatum só pros que ainda não
  * tiveram um parecido forte; (3) IA, numa única chamada agrupada, só pro que
  * sobrou. Descrições repetidas no lote são resolvidas uma vez só.
+ *
+ * `contaIdHistorico` troca a conta usada como histórico do Granatum (padrão:
+ * a conta do Asaas configurada) — a aba Lançamentos lança em qualquer conta.
  */
-async function sugerirVarios(
+export async function sugerirVarios(
   empresaId: string,
   itens: ItemSugestao[],
+  contaIdHistorico?: string,
 ): Promise<Record<string, SugestaoParaLancamento>> {
   const hoje = new Date();
   const inicioHistorico = new Date(hoje.getTime() - DIAS_HISTORICO_GRANATUM * 86_400_000);
-  const contaId = await contaConfigurada(empresaId).catch(() => null);
+  const contaId = contaIdHistorico ?? (await contaConfigurada(empresaId).catch(() => null));
 
   const [categorias, centros, paresHistorico, lancamentosRecentes] = await Promise.all([
     listarCategoriasGranatum(empresaId),

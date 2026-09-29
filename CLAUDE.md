@@ -29,8 +29,8 @@ node .output/server/index.mjs               # roda o build de produção direto
 ```
 
 Sem `vitest.config.*` — reaproveita `vite.config.ts`, descobre `*.test.ts`
-automaticamente. Só `src/lib/matching.ts` tem testes (é a única lógica pura,
-sem I/O, que vale testar assim).
+automaticamente. Só `src/lib/matching.ts` e `src/lib/extrair-valor.ts` têm
+testes (são as lógicas puras, sem I/O, que vale testar assim).
 
 ## Stack e origem
 
@@ -284,6 +284,35 @@ number }`; fallback REST em `GET /finance/balance`. Importante na ordem de
 null)`) e calcula `saldoGranatumProjetado = saldoGranatum + soma dos itens do
 Asaas ainda sem NENHUM par` (sugestão já é um lançamento real no Granatum, só
 não confirmado — já está refletido no saldo atual, não entra nessa soma).
+
+### Aba Lançamentos (`/lancamentos`, `lancamentos.functions.ts`, `FormNovoLancamento.tsx`)
+
+Recurso separado da conciliação (pedido explícito: não mexer no fluxo do
+Asaas), pra lançar direto no Granatum em **qualquer** conta — inclusive bancos
+sem extrato integrado. Não grava `pares_conciliacao`; só registra a criação
+em `log_alteracoes_granatum` (`antes: null`, `depois.criadoEm: "lancamentos"`).
+
+- Tela inicial `/inicio` (destino de `/` e do login) com dois botões grandes,
+  Conciliação e Lançamentos. No celular o nav só mostra esses dois
+  (`soDesktop` nos outros em `montarNav`); Integrações/Histórico/Admin ficam
+  como links na tela inicial.
+- A página lista as contas do Granatum (`listar_contas`, com saldo). Tocar
+  numa conta ou em "Novo lançamento" abre o formulário; a última conta usada
+  fica no `localStorage` do aparelho.
+- Entrada por voz: Web Speech API do navegador (`use-voz.ts`, pt-BR, sem
+  custo). A frase ("gasolina no posto Shell 150 reais") passa por
+  `interpretarFrase` (`extrair-valor.ts`, puro, sem IA), que separa descrição,
+  valor e, se a frase deixar claro ("comprei"/"recebi"), o tipo. Campo que o
+  usuário editou à mão não é mais sobrescrito pela frase/sugestão.
+- Categoria/centro: a mesma `sugerirVarios` da conciliação (exportada, com
+  `contaIdHistorico` opcional pra usar a conta escolhida como histórico do
+  Granatum em vez da conta do Asaas). Pedida com debounce e cache por
+  conta+tipo+descrição.
+- Padrão pago/recebido na data escolhida; "Já pago" desligado cria em aberto
+  com a data como vencimento (`emAberto` em `criarLancamentoGranatum`:
+  `pagamento_automatico: false`, sem `data_pagamento`).
+- Dedupe: `identificador_externo = manual:<uuid>` gerado no navegador por
+  lançamento; reenvio do mesmo "Salvar" acha o existente e não duplica.
 
 ## Deploy
 

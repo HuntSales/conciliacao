@@ -261,6 +261,22 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     confirmação dupla listando todos). Migration 0006 aplicada em 2026-09-25
     depois de trocar o login do `supabase` CLI pra conta dona do projeto.
 
+22. **Aba Lançamentos (2026-09-29)**: pedido do William — lançar compras de
+    contas de outros bancos (que não integram com a conciliação) falando ou
+    digitando o que comprou e o valor, com categoria/centro sugeridos como na
+    conciliação, otimizado pra celular, e uma tela inicial com dois botões
+    (Conciliação / Lançamentos). Decisões dele: voz pelo reconhecimento do
+    navegador (grátis) e não pela OpenAI; valor extraído da frase sem IA;
+    padrão "já pago" com opção de lançar em aberto; tela inicial no celular e
+    no computador. A conciliação não foi alterada — só ganhou parâmetros
+    opcionais (`contaIdHistorico` em `sugerirVarios`, `emAberto` em
+    `criarLancamentoGranatum`) que mantêm o comportamento antigo por padrão.
+    Ver `CLAUDE.md`. Atenção: a pasta do projeto está no Desktop sincronizado
+    pelo iCloud, que deixou ~25 mil arquivos (inclusive `src/` e
+    `node_modules`) só na nuvem — `vite build`/`vitest` travam sem usar CPU
+    esperando download. Validado numa cópia fora do iCloud (`npm ci` no
+    scratchpad).
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi
@@ -273,5 +289,9 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
 - Sugestão por IA ainda não foi testada com uma chave OpenAI real — só
   typecheck/build. Vale configurar a chave em Integrações e testar na prática
   antes de confiar no pré-preenchimento em produção.
+- Aba Lançamentos ainda não testada com dados reais (só testes do extrator,
+  typecheck e build): conferir no celular o microfone (Chrome/Safari), o
+  lançamento em aberto (`pagamento_automatico: false`) e a sugestão com a
+  conta escolhida.
 - ~~`RESEND_API_KEY` ainda não configurada~~ — configurada e testada em
   2026-09-19 (ver item 14 abaixo).

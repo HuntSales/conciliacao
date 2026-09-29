@@ -387,6 +387,8 @@ export type NovoLancamentoGranatum = {
   valor: number; // negativo = despesa, positivo = receita
   data: string; // data do extrato — usada como vencimento, competência e pagamento
   identificadorExterno: string;
+  /** Lançamento manual "a pagar/receber": `data` vira só vencimento, sem baixa. */
+  emAberto?: boolean | undefined;
 };
 
 export async function criarLancamentoGranatum(
@@ -402,8 +404,9 @@ export async function criarLancamentoGranatum(
     valor: dados.valor,
     data_vencimento: dados.data,
     data_competencia: dados.data,
-    data_pagamento: dados.data,
-    pagamento_automatico: true,
+    ...(dados.emAberto
+      ? { pagamento_automatico: false }
+      : { data_pagamento: dados.data, pagamento_automatico: true }),
     identificador_externo: dados.identificadorExterno,
   };
 

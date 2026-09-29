@@ -16,7 +16,9 @@ import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedConciliacaoRouteImport } from './routes/_authenticated/conciliacao'
 import { Route as AuthenticatedHistoricoRouteImport } from './routes/_authenticated/historico'
+import { Route as AuthenticatedInicioRouteImport } from './routes/_authenticated/inicio'
 import { Route as AuthenticatedIntegracoesRouteImport } from './routes/_authenticated/integracoes'
+import { Route as AuthenticatedLancamentosRouteImport } from './routes/_authenticated/lancamentos'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,10 +55,21 @@ const AuthenticatedHistoricoRoute = AuthenticatedHistoricoRouteImport.update({
   path: '/historico',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedInicioRoute = AuthenticatedInicioRouteImport.update({
+  id: '/inicio',
+  path: '/inicio',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedIntegracoesRoute =
   AuthenticatedIntegracoesRouteImport.update({
     id: '/integracoes',
     path: '/integracoes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedLancamentosRoute =
+  AuthenticatedLancamentosRouteImport.update({
+    id: '/lancamentos',
+    path: '/lancamentos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 
@@ -67,7 +80,9 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRoute
   '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/historico': typeof AuthenticatedHistoricoRoute
+  '/inicio': typeof AuthenticatedInicioRoute
   '/integracoes': typeof AuthenticatedIntegracoesRoute
+  '/lancamentos': typeof AuthenticatedLancamentosRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -76,7 +91,9 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRoute
   '/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/historico': typeof AuthenticatedHistoricoRoute
+  '/inicio': typeof AuthenticatedInicioRoute
   '/integracoes': typeof AuthenticatedIntegracoesRoute
+  '/lancamentos': typeof AuthenticatedLancamentosRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -87,7 +104,9 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/conciliacao': typeof AuthenticatedConciliacaoRoute
   '/_authenticated/historico': typeof AuthenticatedHistoricoRoute
+  '/_authenticated/inicio': typeof AuthenticatedInicioRoute
   '/_authenticated/integracoes': typeof AuthenticatedIntegracoesRoute
+  '/_authenticated/lancamentos': typeof AuthenticatedLancamentosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -98,7 +117,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/conciliacao'
     | '/historico'
+    | '/inicio'
     | '/integracoes'
+    | '/lancamentos'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -107,7 +128,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/conciliacao'
     | '/historico'
+    | '/inicio'
     | '/integracoes'
+    | '/lancamentos'
   id:
     | '__root__'
     | '/'
@@ -117,7 +140,9 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/conciliacao'
     | '/_authenticated/historico'
+    | '/_authenticated/inicio'
     | '/_authenticated/integracoes'
+    | '/_authenticated/lancamentos'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -178,11 +203,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedHistoricoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/inicio': {
+      id: '/_authenticated/inicio'
+      path: '/inicio'
+      fullPath: '/inicio'
+      preLoaderRoute: typeof AuthenticatedInicioRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/integracoes': {
       id: '/_authenticated/integracoes'
       path: '/integracoes'
       fullPath: '/integracoes'
       preLoaderRoute: typeof AuthenticatedIntegracoesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/lancamentos': {
+      id: '/_authenticated/lancamentos'
+      path: '/lancamentos'
+      fullPath: '/lancamentos'
+      preLoaderRoute: typeof AuthenticatedLancamentosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
   }
@@ -192,14 +231,18 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedConciliacaoRoute: typeof AuthenticatedConciliacaoRoute
   AuthenticatedHistoricoRoute: typeof AuthenticatedHistoricoRoute
+  AuthenticatedInicioRoute: typeof AuthenticatedInicioRoute
   AuthenticatedIntegracoesRoute: typeof AuthenticatedIntegracoesRoute
+  AuthenticatedLancamentosRoute: typeof AuthenticatedLancamentosRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedConciliacaoRoute: AuthenticatedConciliacaoRoute,
   AuthenticatedHistoricoRoute: AuthenticatedHistoricoRoute,
+  AuthenticatedInicioRoute: AuthenticatedInicioRoute,
   AuthenticatedIntegracoesRoute: AuthenticatedIntegracoesRoute,
+  AuthenticatedLancamentosRoute: AuthenticatedLancamentosRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

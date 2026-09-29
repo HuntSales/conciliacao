@@ -48,7 +48,7 @@ function AuthPage() {
       .eq("id", data.user.id)
       .maybeSingle();
     if (perfil?.empresa_id) {
-      void navigate({ to: "/conciliacao" });
+      void navigate({ to: "/inicio" });
       return;
     }
     const { data: papeis } = await supabase
@@ -56,7 +56,7 @@ function AuthPage() {
       .select("role")
       .eq("user_id", data.user.id);
     const ehSuper = (papeis ?? []).some((p) => p.role === "super_admin");
-    void navigate({ to: ehSuper ? "/admin" : "/conciliacao" });
+    void navigate({ to: ehSuper ? "/admin" : "/inicio" });
   };
 
   useEffect(() => {
