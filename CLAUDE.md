@@ -313,6 +313,29 @@ em `log_alteracoes_granatum` (`antes: null`, `depois.criadoEm: "lancamentos"`).
   `pagamento_automatico: false`, sem `data_pagamento`).
 - Dedupe: `identificador_externo = manual:<uuid>` gerado no navegador por
   lançamento; reenvio do mesmo "Salvar" acha o existente e não duplica.
+- **Único / Parcelado / Recorrente** (`repeticao` em `criarLancamentoManual`).
+  O Granatum não tem campo "parcelado": os dois são uma série
+  (`periodicidade` D7/D15/M1/M2/M3/M6/M12 + `total_repeticoes`, ou
+  `infinito: true` pra sem fim), com o **mesmo `valor` em cada ocorrência**.
+  Comportamento confirmado criando séries de teste (2026-09-29):
+  - `data_pagamento` baixa só a 1ª ocorrência; as próximas ficam em aberto.
+  - `pagamento_automatico` é copiado pras próximas ("A pagar automático") —
+    numa série vai sempre `false`.
+  - `data_competencia` informada vai igual em todas; omitida, cada uma usa o
+    próprio vencimento; com `infinito`, o Granatum incrementa sozinho.
+  - Editar uma ocorrência sem `propagar_alteracao` muda só ela.
+  Parcelado: o valor digitado é o **total**; `dividirEmParcelas`
+  (`parcelas.ts`, testado) manda o valor da parcela e depois ajusta só a 1ª
+  com a sobra dos centavos (falha nesse ajuste vira `aviso`, nunca erro — o
+  lançamento já existe). Competência = data da compra em todas (orientação da
+  ajuda do Granatum). Recorrente: sem fim por padrão ou N vezes, sem
+  competência (cada ocorrência no mês do vencimento). `interpretarFrase`
+  reconhece "em 10x"/"10 vezes"/"N parcelas" e "todo mês"/"por semana"/
+  "anual" — o número de parcelas sai da frase antes de procurar o valor.
+  **Dependência do Multi MCPs**: `infinito` só chega ao Granatum porque foi
+  acrescentado aos parâmetros da tool `criar_lancamento` lá (migration
+  `20260929220000_granatum_criar_lancamento_infinito.sql`) — o runtime de lá
+  descarta argumento que a tool não declara.
 
 ## Deploy
 

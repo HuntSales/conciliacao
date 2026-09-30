@@ -11,7 +11,22 @@ export type FraseInterpretada = {
   valor: number | null;
   /** Só quando a frase deixa claro ("comprei", "recebi"); senão null. */
   tipo: "receita" | "despesa" | null;
+  /** "em 10x", "todo mês"... — null quando a frase não fala em repetição. */
+  repeticao:
+    | { modo: "parcelado"; parcelas: number }
+    | { modo: "recorrente"; periodicidade: "D7" | "M1" | "M12" }
+    | null;
 };
+
+// "em 10x", "10 vezes", "parcelado em 3 parcelas" — sai antes de procurar o
+// valor, senão o 10 de "3000 em 10x" viraria o valor.
+const PARCELAS =
+  /(?:\bparcelad[oa]\s+)?(?:\bem\s+)?\b(\d{1,3})\s*(?:x|vezes|parcelas)(?![\p{L}\d])/iu;
+const RECORRENCIAS: Array<[RegExp, "D7" | "M1" | "M12"]> = [
+  [/\b(?:todo m[eê]s|todos os meses|por m[eê]s|mensal(?:mente)?|recorrente)(?![\p{L}])/iu, "M1"],
+  [/\b(?:toda semana|todas as semanas|por semana|semanal(?:mente)?)(?![\p{L}])/iu, "D7"],
+  [/\b(?:todo ano|todos os anos|por ano|anual(?:mente)?)(?![\p{L}])/iu, "M12"],
+];
 
 // Número em pt-BR: milhar com ponto (1.234), decimal com vírgula (150,50),
 // decimal com ponto só com 1–2 casas (150.50), opcionalmente "mil",
@@ -34,7 +49,23 @@ function paraNumero(inteiro: string, decimais: string | undefined): number {
 }
 
 export function interpretarFrase(texto: string): FraseInterpretada {
-  const original = texto.trim().replace(/\s+/g, " ");
+  let original = texto.trim().replace(/\s+/g, " ");
+
+  let repeticao: FraseInterpretada["repeticao"] = null;
+  const parcelas = PARCELAS.exec(original);
+  if (parcelas && Number(parcelas[1]) >= 2) {
+    repeticao = { modo: "parcelado", parcelas: Number(parcelas[1]) };
+    original = original.replace(parcelas[0], " ").replace(/\bparcelad[oa]\b/i, " ");
+  } else {
+    for (const [padrao, periodicidade] of RECORRENCIAS) {
+      const m = padrao.exec(original);
+      if (!m) continue;
+      repeticao = { modo: "recorrente", periodicidade };
+      original = original.replace(m[0], " ");
+      break;
+    }
+  }
+  original = original.replace(/\s+/g, " ").trim();
 
   type Candidato = { inicio: number; fim: number; valor: number; forte: boolean };
   const candidatos: Candidato[] = [];
@@ -76,5 +107,10 @@ export function interpretarFrase(texto: string): FraseInterpretada {
   descricao = descricao.replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, "");
   if (descricao) descricao = descricao.charAt(0).toUpperCase() + descricao.slice(1);
 
-  return { descricao, valor: escolhido && escolhido.valor > 0 ? escolhido.valor : null, tipo };
+  return {
+    descricao,
+    valor: escolhido && escolhido.valor > 0 ? escolhido.valor : null,
+    tipo,
+    repeticao,
+  };
 }

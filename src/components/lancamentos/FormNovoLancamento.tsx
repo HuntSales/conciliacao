@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Save, Square, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  CalendarClock,
+  Layers,
+  Mic,
+  Repeat,
+  Save,
+  Square,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,10 +28,24 @@ import { criarLancamentoManual, sugerirParaLancamento } from "@/lib/lancamentos.
 import { interpretarFrase } from "@/lib/extrair-valor";
 import { formatarMoeda, hojeIso } from "@/lib/format";
 import { folhas } from "@/lib/hierarquia";
+import { dividirEmParcelas, PERIODICIDADES, type Periodicidade } from "@/lib/parcelas";
 import { useVoz } from "@/lib/use-voz";
 import type { CategoriaGranatum, CentroCustoGranatum, ContaGranatum } from "@/lib/mcp/tipos";
 
 type Tipo = "receita" | "despesa";
+type Modo = "unico" | "parcelado" | "recorrente";
+
+const MODOS: Array<{ valor: Modo; rotulo: string; icone: typeof Layers }> = [
+  { valor: "unico", rotulo: "Único", icone: CalendarClock },
+  { valor: "parcelado", rotulo: "Parcelado", icone: Layers },
+  { valor: "recorrente", rotulo: "Recorrente", icone: Repeat },
+];
+
+/** Inteiro entre 2 e 120 (limite do formulário), senão null. */
+function lerQuantidade(texto: string): number | null {
+  const n = Number.parseInt(texto, 10);
+  return Number.isInteger(n) && n >= 2 && n <= 120 ? n : null;
+}
 
 /** "1.234,56", "1234.56", "150" → número; vazio/inválido → null. */
 function lerValor(texto: string): number | null {
@@ -38,7 +61,9 @@ function escreverValor(valor: number): string {
 }
 
 /** Campos que o usuário mexeu à mão — frase/sugestão não sobrescrevem mais. */
-type Tocados = Partial<Record<"descricao" | "valor" | "tipo" | "categoria" | "centro", boolean>>;
+type Tocados = Partial<
+  Record<"descricao" | "valor" | "tipo" | "categoria" | "centro" | "repeticao", boolean>
+>;
 
 export function FormNovoLancamento({
   contas,
@@ -61,6 +86,13 @@ export function FormNovoLancamento({
   const [tipo, setTipo] = useState<Tipo>("despesa");
   const [data, setData] = useState(hojeIso());
   const [pago, setPago] = useState(true);
+  const [modo, setModo] = useState<Modo>("unico");
+  const [parcelasTexto, setParcelasTexto] = useState("2");
+  const [periodicidade, setPeriodicidade] = useState<Periodicidade>("M1");
+  const [semFim, setSemFim] = useState(true);
+  const [vezesTexto, setVezesTexto] = useState("12");
+  // Parcelado: competência de todas as parcelas (a `data` vira o 1º vencimento).
+  const [dataCompra, setDataCompra] = useState(hojeIso());
   const [categoriaId, setCategoriaId] = useState("");
   const [centroCustoId, setCentroCustoId] = useState("");
   const [tocados, setTocados] = useState<Tocados>({});
@@ -81,12 +113,27 @@ export function FormNovoLancamento({
     if (categoriaId && !categoriasFolha.some((c) => c.id === categoriaId)) setCategoriaId("");
   }, [categoriasFolha, categoriaId]);
 
+  const aplicarRepeticao = (r: ReturnType<typeof interpretarFrase>["repeticao"]) => {
+    if (!r) {
+      setModo("unico");
+      return;
+    }
+    setModo(r.modo);
+    if (r.modo === "parcelado") {
+      setParcelasTexto(String(r.parcelas));
+      setPeriodicidade("M1");
+    } else {
+      setPeriodicidade(r.periodicidade);
+    }
+  };
+
   const aplicarFrase = (texto: string) => {
     setFrase(texto);
     const r = interpretarFrase(texto);
     if (!tocados.descricao) setDescricao(r.descricao);
     if (!tocados.valor) setValorTexto(r.valor !== null ? escreverValor(r.valor) : "");
     if (!tocados.tipo && r.tipo) setTipo(r.tipo);
+    if (!tocados.repeticao) aplicarRepeticao(r.repeticao);
   };
 
   const voz = useVoz((texto) => {
@@ -97,6 +144,7 @@ export function FormNovoLancamento({
     setDescricao(r.descricao);
     setValorTexto(r.valor !== null ? escreverValor(r.valor) : "");
     if (!tocados.tipo && r.tipo) setTipo(r.tipo);
+    if (!tocados.repeticao) aplicarRepeticao(r.repeticao);
   });
 
   useEffect(() => {
@@ -104,6 +152,12 @@ export function FormNovoLancamento({
   }, [voz.erro]);
 
   const valor = lerValor(valorTexto);
+  const parcelas = lerQuantidade(parcelasTexto);
+  const divisao =
+    modo === "parcelado" && valor !== null && parcelas ? dividirEmParcelas(valor, parcelas) : null;
+  const ehSerie = modo !== "unico";
+  const rotuloPeriodicidade =
+    PERIODICIDADES.find((p) => p.valor === periodicidade)?.rotulo.toLowerCase() ?? "";
 
   // Sugestão de categoria/centro: espera a pessoa parar de digitar, e guarda
   // por descrição+tipo+conta pra não pedir de novo (nem gastar token) à toa.
@@ -158,6 +212,7 @@ export function FormNovoLancamento({
     setCentroCustoId("");
     setTocados({});
     setSugestao(undefined);
+    setModo("unico");
     setIdempotencia(crypto.randomUUID());
   };
 
@@ -172,14 +227,20 @@ export function FormNovoLancamento({
             ? "Selecione a categoria"
             : !data
               ? "Preencha a data"
-              : null;
+              : modo === "parcelado" && !parcelas
+                ? "Número de parcelas entre 2 e 120"
+                : modo === "parcelado" && !dataCompra
+                  ? "Preencha a data da compra"
+                  : modo === "recorrente" && !semFim && !lerQuantidade(vezesTexto)
+                    ? "Número de vezes entre 2 e 120"
+                    : null;
     if (faltando || valor === null) {
       toast.error(faltando ?? "Preencha o valor");
       return;
     }
     setSalvando(true);
     try {
-      await criarLancamentoManual({
+      const r = await criarLancamentoManual({
         data: {
           contaId,
           descricao: descricao.trim(),
@@ -189,12 +250,24 @@ export function FormNovoLancamento({
           pago,
           categoriaId,
           centroCustoId: centroCustoId || null,
+          repeticao:
+            modo === "parcelado"
+              ? { modo, parcelas: parcelas ?? 2, periodicidade, dataCompra }
+              : modo === "recorrente"
+                ? { modo, periodicidade, vezes: semFim ? null : lerQuantidade(vezesTexto) }
+                : { modo },
           idempotencia,
         },
       });
+      const oQue = tipo === "despesa" ? "Despesa" : "Receita";
       toast.success(
-        `${tipo === "despesa" ? "Despesa" : "Receita"} de ${formatarMoeda(valor)} lançada no Granatum`,
+        modo === "parcelado"
+          ? `${oQue} de ${formatarMoeda(valor)} lançada em ${parcelas}x no Granatum`
+          : modo === "recorrente"
+            ? `${oQue} ${rotuloPeriodicidade} de ${formatarMoeda(valor)} criada no Granatum`
+            : `${oQue} de ${formatarMoeda(valor)} lançada no Granatum`,
       );
+      if (r.aviso) toast.warning(r.aviso);
       limpar();
       onSalvo();
     } catch (erro) {
@@ -292,7 +365,7 @@ export function FormNovoLancamento({
         </div>
         <div className="space-y-1">
           <Label className="lbl" htmlFor="valor">
-            Valor (R$)
+            {modo === "parcelado" ? "Valor total (R$)" : "Valor (R$)"}
           </Label>
           <Input
             id="valor"
@@ -308,10 +381,114 @@ export function FormNovoLancamento({
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] items-end gap-4">
-        <div className="space-y-1">
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {MODOS.map((m) => (
+            <Button
+              key={m.valor}
+              type="button"
+              variant={modo === m.valor ? "corp" : "corpOutline"}
+              className="h-11 px-2"
+              onClick={() => {
+                setModo(m.valor);
+                setTocados((x) => ({ ...x, repeticao: true }));
+              }}
+            >
+              <m.icone /> {m.rotulo}
+            </Button>
+          ))}
+        </div>
+
+        {modo === "parcelado" ? (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label className="lbl" htmlFor="parcelas">
+                Parcelas
+              </Label>
+              <Input
+                id="parcelas"
+                inputMode="numeric"
+                className="h-11"
+                value={parcelasTexto}
+                onChange={(e) => {
+                  setParcelasTexto(e.target.value.replace(/\D/g, ""));
+                  setTocados((x) => ({ ...x, repeticao: true }));
+                }}
+              />
+            </div>
+            <CampoPeriodicidade valor={periodicidade} onMudar={setPeriodicidade} />
+          </div>
+        ) : null}
+
+        {modo === "recorrente" ? (
+          <div className="grid grid-cols-2 items-end gap-4">
+            <CampoPeriodicidade valor={periodicidade} onMudar={setPeriodicidade} />
+            {semFim ? (
+              <label className="flex h-11 cursor-pointer items-center gap-2 text-sm text-body">
+                <Switch checked={semFim} onCheckedChange={setSemFim} />
+                Sem fim
+              </label>
+            ) : (
+              <div className="space-y-1">
+                <Label className="lbl" htmlFor="vezes">
+                  Quantas vezes
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="vezes"
+                    inputMode="numeric"
+                    className="h-11"
+                    value={vezesTexto}
+                    onChange={(e) => setVezesTexto(e.target.value.replace(/\D/g, ""))}
+                  />
+                  <Switch checked={semFim} onCheckedChange={setSemFim} aria-label="Sem fim" />
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {modo === "parcelado" && divisao && parcelas ? (
+          <p className="text-sm text-body">
+            {divisao.primeira === divisao.parcela
+              ? `${parcelas}x de ${formatarMoeda(divisao.parcela)}`
+              : `1ª de ${formatarMoeda(divisao.primeira)} e ${parcelas - 1}x de ${formatarMoeda(divisao.parcela)}`}
+            {" · "}
+            {rotuloPeriodicidade}
+          </p>
+        ) : modo === "recorrente" ? (
+          <p className="text-xs text-muted-foreground">
+            {semFim
+              ? `Repete ${rotuloPeriodicidade} até você encerrar no Granatum.`
+              : `Repete ${rotuloPeriodicidade}, ${lerQuantidade(vezesTexto) ?? "N"} vezes.`}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {modo === "parcelado" ? (
+          <div className="space-y-1">
+            <Label className="lbl" htmlFor="data-compra">
+              Data da compra
+            </Label>
+            <Input
+              id="data-compra"
+              type="date"
+              className="h-11"
+              value={dataCompra}
+              onChange={(e) => setDataCompra(e.target.value)}
+            />
+          </div>
+        ) : null}
+        <div className={`space-y-1 ${modo === "parcelado" ? "" : "col-span-2 sm:col-span-1"}`}>
           <Label className="lbl" htmlFor="data">
-            {pago ? (tipo === "despesa" ? "Pago em" : "Recebido em") : "Vencimento"}
+            {ehSerie
+              ? "1º vencimento"
+              : pago
+                ? tipo === "despesa"
+                  ? "Pago em"
+                  : "Recebido em"
+                : "Vencimento"}
           </Label>
           <Input
             id="data"
@@ -321,11 +498,15 @@ export function FormNovoLancamento({
             onChange={(e) => setData(e.target.value)}
           />
         </div>
-        <label className="flex h-11 cursor-pointer items-center gap-2 text-sm text-body">
-          <Switch checked={pago} onCheckedChange={setPago} />
-          {tipo === "despesa" ? "Já pago" : "Já recebido"}
-        </label>
       </div>
+      <label className="flex cursor-pointer items-center gap-2 text-sm text-body">
+        <Switch checked={pago} onCheckedChange={setPago} />
+        {ehSerie
+          ? `1ª ${modo === "parcelado" ? "parcela" : "ocorrência"} já ${tipo === "despesa" ? "paga" : "recebida"}`
+          : tipo === "despesa"
+            ? "Já pago"
+            : "Já recebido"}
+      </label>
 
       <div className="space-y-3">
         <AvisoSugestao sugestao={sugestao} buscando={buscandoSugestao} />
@@ -383,6 +564,32 @@ export function FormNovoLancamento({
       >
         <Save /> {salvando ? "Salvando" : "Salvar lançamento"}
       </Button>
+    </div>
+  );
+}
+
+function CampoPeriodicidade({
+  valor,
+  onMudar,
+}: {
+  valor: Periodicidade;
+  onMudar: (p: Periodicidade) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="lbl">Periodicidade</Label>
+      <Select value={valor} onValueChange={(v) => onMudar(v as Periodicidade)}>
+        <SelectTrigger className="h-11">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PERIODICIDADES.map((p) => (
+            <SelectItem key={p.valor} value={p.valor}>
+              {p.rotulo}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

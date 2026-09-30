@@ -7,6 +7,7 @@ describe("interpretarFrase", () => {
       descricao: "Gasolina no posto Shell",
       valor: 150,
       tipo: null,
+      repeticao: null,
     });
   });
 
@@ -42,16 +43,19 @@ describe("interpretarFrase", () => {
       descricao: "Almoço",
       valor: 80,
       tipo: "despesa",
+      repeticao: null,
     });
     expect(interpretarFrase("recebi 500 reais do cliente Fulano")).toEqual({
       descricao: "Do cliente Fulano",
       valor: 500,
       tipo: "receita",
+      repeticao: null,
     });
     expect(interpretarFrase("comprei material de escritório no valor de 99,90")).toEqual({
       descricao: "Material de escritório",
       valor: 99.9,
       tipo: "despesa",
+      repeticao: null,
     });
   });
 
@@ -60,6 +64,44 @@ describe("interpretarFrase", () => {
       descricao: "Estacionamento",
       valor: null,
       tipo: null,
+      repeticao: null,
+    });
+  });
+
+  it("entende parcelamento sem confundir o número de parcelas com o valor", () => {
+    expect(interpretarFrase("notebook 3000 em 10x")).toMatchObject({
+      descricao: "Notebook",
+      valor: 3000,
+      repeticao: { modo: "parcelado", parcelas: 10 },
+    });
+    expect(interpretarFrase("comprei sofá parcelado em 5 vezes 2.500 reais")).toMatchObject({
+      descricao: "Sofá",
+      valor: 2500,
+      repeticao: { modo: "parcelado", parcelas: 5 },
+    });
+    expect(interpretarFrase("geladeira 3 parcelas 1500").repeticao).toEqual({
+      modo: "parcelado",
+      parcelas: 3,
+    });
+  });
+
+  it("1x não é parcelamento", () => {
+    expect(interpretarFrase("mouse 1x 80").repeticao).toBeNull();
+  });
+
+  it("entende recorrência e a periodicidade", () => {
+    expect(interpretarFrase("assinatura ChatGPT 99,90 todo mês")).toMatchObject({
+      descricao: "Assinatura ChatGPT",
+      valor: 99.9,
+      repeticao: { modo: "recorrente", periodicidade: "M1" },
+    });
+    expect(interpretarFrase("faxina 150 por semana").repeticao).toEqual({
+      modo: "recorrente",
+      periodicidade: "D7",
+    });
+    expect(interpretarFrase("domínio anual 60 reais").repeticao).toEqual({
+      modo: "recorrente",
+      periodicidade: "M12",
     });
   });
 });

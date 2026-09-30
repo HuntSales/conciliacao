@@ -277,6 +277,23 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     esperando download. Validado numa cópia fora do iCloud (`npm ci` no
     scratchpad).
 
+23. **Parcelado e recorrente na aba Lançamentos (2026-09-29)**: pedido do
+    William — marcar se o lançamento é único, recorrente ou parcelado, depois
+    de entender como o Granatum trata isso. Pesquisa: documentação da API +
+    séries reais do próprio Granatum (ex.: "Compra Microfone", 7x de 137,41)
+    + séries de teste criadas e excluídas na conta "Caixinha" (saldo zero) do
+    Granatum acessível pelo MCP da sessão, com autorização dele. Decisões
+    dele: valor do parcelado é o total (sistema divide, centavos na 1ª);
+    competência = data da compra em todas as parcelas; recorrente sem fim por
+    padrão, com opção de N vezes. Descoberto no teste: a tool
+    `criar_lancamento` do Multi MCPs não tinha `infinito` e o runtime
+    descarta argumento não declarado — o Granatum criava um lançamento único.
+    Com autorização dele, `infinito` foi acrescentado lá (migration nova no
+    repo do Multi MCPs). O `supabase` CLI desta máquina não tem acesso ao
+    projeto do Multi MCPs (`lyckfuhqtnryxffzfcmz`, org CorpSolutions), então
+    a mudança foi aplicada pela API REST com a service role do `.env` de lá —
+    a migration é idempotente, rodar `db push` depois não duplica nada.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

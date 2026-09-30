@@ -5,10 +5,12 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   buscarLancamentoPorIdentificadorExterno,
   criarLancamentoGranatum,
+  editarLancamentoGranatum,
   listarContasGranatum,
   listarLancamentosGranatum,
 } from "@/lib/mcp/granatum.server";
 import { sugerirVarios, type SugestaoParaLancamento } from "@/lib/conciliacao.functions";
+import { dividirEmParcelas } from "@/lib/parcelas";
 import { somarDias, hojeIso } from "@/lib/format";
 
 /**
@@ -60,16 +62,39 @@ export const sugerirParaLancamento = createServerFn({ method: "POST" })
     return r["novo"] ?? { categoriaId: null, centroCustoId: null, origem: "nenhuma" };
   });
 
+const data = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const periodicidade = z.enum(["D7", "D15", "M1", "M2", "M3", "M6", "M12"]);
+
 const criarSchema = z.object({
   contaId: z.string(),
   descricao: z.string().trim().min(1).max(500),
-  /** Positivo — o sinal sai do tipo. */
+  /** Positivo — o sinal sai do tipo. No parcelado é o TOTAL da compra. */
   valor: z.number().positive(),
   tipo: z.enum(["receita", "despesa"]),
-  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Vencimento (único: também a data de pagamento; série: 1º vencimento). */
+  data,
+  /** Único: pago/recebido. Série: a 1ª ocorrência já paga. */
   pago: z.boolean(),
   categoriaId: z.string().min(1),
   centroCustoId: z.string().nullable().optional(),
+  repeticao: z
+    .discriminatedUnion("modo", [
+      z.object({ modo: z.literal("unico") }),
+      z.object({
+        modo: z.literal("parcelado"),
+        parcelas: z.number().int().min(2).max(120),
+        periodicidade,
+        /** Competência de todas as parcelas (orientação do Granatum). */
+        dataCompra: data,
+      }),
+      z.object({
+        modo: z.literal("recorrente"),
+        periodicidade,
+        /** null = sem fim (`infinito` no Granatum). */
+        vezes: z.number().int().min(2).max(120).nullable(),
+      }),
+    ])
+    .default({ modo: "unico" }),
   /**
    * Gerado no navegador uma vez por lançamento: se o "Salvar" for enviado
    * duas vezes (rede lenta, clique duplo), o segundo acha o primeiro no
@@ -90,19 +115,51 @@ export const criarLancamentoManual = createServerFn({ method: "POST" })
       data.contaId,
       identificadorExterno,
     ).catch(() => null);
-    if (existente) return { ok: true, granatumId: existente.id, duplicado: true };
+    if (existente) return { ok: true, granatumId: existente.id, duplicado: true, aviso: null };
 
-    const valor = data.tipo === "despesa" ? -data.valor : data.valor;
+    const total = data.tipo === "despesa" ? -data.valor : data.valor;
+    const rep = data.repeticao;
+    // Parcelado: o Granatum repete o mesmo valor em todas as parcelas, então
+    // manda o valor da parcela e ajusta só a 1ª com a sobra dos centavos.
+    const divisao = rep.modo === "parcelado" ? dividirEmParcelas(total, rep.parcelas) : null;
+
     const granatumId = await criarLancamentoGranatum(context.empresaId, {
       descricao: data.descricao,
       contaId: data.contaId,
       categoriaId: data.categoriaId,
       centroCustoId: data.centroCustoId ?? null,
-      valor,
+      valor: divisao ? divisao.parcela : total,
       data: data.data,
       identificadorExterno,
       emAberto: !data.pago,
+      ...(rep.modo === "parcelado"
+        ? {
+            repeticao: { periodicidade: rep.periodicidade, total: rep.parcelas },
+            dataCompetencia: rep.dataCompra,
+          }
+        : rep.modo === "recorrente"
+          ? {
+              repeticao: { periodicidade: rep.periodicidade, total: rep.vezes },
+              // Cada ocorrência na competência do próprio vencimento (com
+              // competência fixa, uma série com N vezes repetiria a mesma).
+              dataCompetencia: null,
+            }
+          : {}),
     });
+
+    // O lançamento já existe: falhar aqui não pode virar erro (a pessoa
+    // tentaria de novo). Só avisa pra ajustar à mão.
+    let aviso: string | null = null;
+    if (divisao && divisao.primeira !== divisao.parcela) {
+      try {
+        await editarLancamentoGranatum(context.empresaId, {
+          id: granatumId,
+          valor: divisao.primeira,
+        });
+      } catch {
+        aviso = `Parcelas criadas, mas não consegui ajustar a 1ª para ${Math.abs(divisao.primeira).toFixed(2).replace(".", ",")} — ajuste no Granatum.`;
+      }
+    }
 
     await supabaseAdmin.from("log_alteracoes_granatum").insert({
       empresa_id: context.empresaId,
@@ -112,16 +169,17 @@ export const criarLancamentoManual = createServerFn({ method: "POST" })
         criadoEm: "lancamentos",
         contaId: data.contaId,
         descricao: data.descricao,
-        valor,
+        valor: total,
         data: data.data,
         pago: data.pago,
         categoriaId: data.categoriaId,
         centroCustoId: data.centroCustoId ?? null,
+        repeticao: rep,
       },
       usuario_id: context.userId ?? null,
     });
 
-    return { ok: true, granatumId, duplicado: false };
+    return { ok: true, granatumId, duplicado: false, aviso };
   });
 
 const recentesSchema = z.object({ contaId: z.string() });

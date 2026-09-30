@@ -389,7 +389,23 @@ export type NovoLancamentoGranatum = {
   identificadorExterno: string;
   /** Lançamento manual "a pagar/receber": `data` vira só vencimento, sem baixa. */
   emAberto?: boolean | undefined;
+  /**
+   * Série no Granatum (parcelado ou recorrente): `valor` é o de CADA
+   * ocorrência e `data` o 1º vencimento. `total: null` = sem fim
+   * (`infinito`). Confirmado com dados reais (2026-09-29): a baixa
+   * (`data_pagamento`) vale só pra 1ª ocorrência, e `pagamento_automatico`
+   * é copiado pras próximas — por isso vai sempre `false` numa série.
+   */
+  repeticao?: { periodicidade: PeriodicidadeGranatum; total: number | null } | undefined;
+  /**
+   * Competência explícita (parcelado: data da compra, igual em todas as
+   * parcelas). `null` = não enviar, e cada ocorrência usa o próprio
+   * vencimento. Omitido = `data`, como sempre foi.
+   */
+  dataCompetencia?: string | null | undefined;
 };
+
+export type PeriodicidadeGranatum = "D7" | "D15" | "M1" | "M2" | "M3" | "M6" | "M12";
 
 export async function criarLancamentoGranatum(
   empresaId: string,
@@ -403,10 +419,19 @@ export async function criarLancamentoGranatum(
     ...(dados.centroCustoId ? { centro_custo_lucro_id: Number(dados.centroCustoId) } : {}),
     valor: dados.valor,
     data_vencimento: dados.data,
-    data_competencia: dados.data,
-    ...(dados.emAberto
-      ? { pagamento_automatico: false }
-      : { data_pagamento: dados.data, pagamento_automatico: true }),
+    ...(dados.dataCompetencia === null
+      ? {}
+      : { data_competencia: dados.dataCompetencia ?? dados.data }),
+    ...(dados.emAberto ? {} : { data_pagamento: dados.data }),
+    pagamento_automatico: !dados.emAberto && !dados.repeticao,
+    ...(dados.repeticao
+      ? {
+          periodicidade: dados.repeticao.periodicidade,
+          ...(dados.repeticao.total === null
+            ? { infinito: true }
+            : { total_repeticoes: dados.repeticao.total }),
+        }
+      : {}),
     identificador_externo: dados.identificadorExterno,
   };
 
@@ -434,6 +459,8 @@ export type EdicaoLancamentoGranatum = {
   centroCustoId?: string | null | undefined;
   /** Preencher dá baixa (marca como pago/recebido) nesta data. */
   dataPagamento?: string | undefined;
+  /** Numa série, muda só esta ocorrência (`propagar_alteracao` fica no padrão, false). */
+  valor?: number | undefined;
 };
 
 export async function editarLancamentoGranatum(
@@ -449,6 +476,7 @@ export async function editarLancamentoGranatum(
       ? { centro_custo_lucro_id: dados.centroCustoId ? Number(dados.centroCustoId) : null }
       : {}),
     ...(dados.dataPagamento !== undefined ? { data_pagamento: dados.dataPagamento } : {}),
+    ...(dados.valor !== undefined ? { valor: dados.valor } : {}),
   };
 
   if (via) {
