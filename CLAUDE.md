@@ -194,11 +194,13 @@ pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 
 Todo card sem par (Asaas ou Granatum) tem "Ignorar", que abre
 `DialogIgnorar` com **confirmação dupla** (pedido explícito: "Continuar" →
-"Sim, ignorar lançamento"). Também em lote: os cards do Granatum sem par têm
-checkbox (`selecionadosGranatum`, separado de `selecionadosLote` do Asaas) e a
-faixa de seleção mostra "Ignorar todos" pros dois lados juntos — mesmo
-diálogo, listando todos. "Selecionar todos os pendentes" marca os pendentes
-visíveis dos dois lados. `ignorarLancamentos` (sempre recebe lista) grava em
+"Sim, ignorar lançamento"). Em lote, só do lado do Asaas: a faixa de seleção
+(`selecionadosLote`) mostra "Ignorar todos" — mesmo diálogo, listando todos.
+Os cards do Granatum **não têm checkbox** (pedido explícito, 2026-10-05: o
+Granatum é só pra mostrar; marcá-lo junto com "Criar" fazia parecer que o
+mesmo lançamento seria criado de novo) — lá o Ignorar é só individual.
+"Selecionar todos os pendentes" marca só os itens do Asaas que ainda podem
+ser criados (sem par, não ignorados, sem `jaNoGranatum`). `ignorarLancamentos` (sempre recebe lista) grava em
 `lancamentos_ignorados` (`unique(empresa_id, provedor, lancamento_id)`, com
 cópia de data/valor/descrição só pra exibição) e recusa se o item já tiver
 par (por item, sem derrubar o resto — `ResultadoIgnorar[]`). Em

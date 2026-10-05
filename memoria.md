@@ -294,6 +294,15 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     a mudança foi aplicada pela API REST com a service role do `.env` de lá —
     a migration é idempotente, rodar `db push` depois não duplica nada.
 
+24. **Duplicidade ao criar a partir do Asaas (2026-10-05)**: o William
+    marcava "Selecionar todos os pendentes" + "Criar" e duplicava no Granatum
+    o que já estava lá sem par (data diferente, a engine não ligava; ou par
+    desfeito). Correção: `jaNoGranatum` (identificador externo ou mesmo
+    valor, 1:1) bloqueia seleção/criação e oferece "Ligar a ele"; o servidor
+    confere o `identificador_externo` no Granatum antes de criar. Depois, a
+    pedido dele, os cards do Granatum perderam o checkbox (o Granatum é "só
+    pra mostrar") — "Ignorar todos" ficou só do lado do Asaas.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

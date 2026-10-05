@@ -77,10 +77,10 @@ function ConciliacaoPage() {
     granatum: ItemGranatum;
   } | null>(null);
   const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
+  // Seleção é só do lado do Asaas (o que ainda pode ser criado no Granatum).
+  // Os cards do Granatum não têm seleção — pedido explícito, pra não parecer
+  // que dá pra criar de novo o que já existe lá.
   const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
-  // Seleção do lado do Granatum: só serve pra "Ignorar todos" (criar em lote
-  // é só a partir do Asaas).
-  const [selecionadosGranatum, setSelecionadosGranatum] = useState<Set<string>>(new Set());
   const [loteAberto, setLoteAberto] = useState(false);
   const superAdmin = useSuperAdmin();
   const nav = montarNav("conciliacao", superAdmin.data ?? false);
@@ -163,7 +163,6 @@ function ConciliacaoPage() {
     // cima, fácil de não notar depois de rolar a tela).
     setOrigemVinculo(null);
     setSelecionadosLote(new Set());
-    setSelecionadosGranatum(new Set());
     busca.mutate();
   };
 
@@ -291,7 +290,6 @@ function ConciliacaoPage() {
         return novo;
       };
       setSelecionadosLote(tirar("asaas"));
-      setSelecionadosGranatum(tirar("granatum"));
       setParaIgnorar(null);
       invalidarBusca();
     } catch (erro) {
@@ -348,37 +346,18 @@ function ConciliacaoPage() {
   const itensLote = (dados?.asaas ?? []).filter(
     (a) => selecionadosLote.has(a.id) && !a.jaNoGranatum,
   );
-  const itensGranatumSelecionados = (dados?.granatum ?? []).filter((g) =>
-    selecionadosGranatum.has(g.id),
-  );
-  const totalSelecionados = selecionadosLote.size + selecionadosGranatum.size;
-
-  const alternarSelecaoGranatum = (id: string, marcado: boolean) => {
-    setSelecionadosGranatum((prev) => {
-      const novo = new Set(prev);
-      if (marcado) novo.add(id);
-      else novo.delete(id);
-      return novo;
-    });
-  };
+  const totalSelecionados = selecionadosLote.size;
 
   const iniciarIgnorarTodos = () =>
-    setParaIgnorar([
-      ...itensLote.map((a) => ({
+    setParaIgnorar(
+      itensLote.map((a) => ({
         provedor: "asaas" as const,
         id: a.id,
         data: a.data,
         valor: a.valor,
         descricao: a.descricao,
       })),
-      ...itensGranatumSelecionados.map((g) => ({
-        provedor: "granatum" as const,
-        id: g.id,
-        data: g.data,
-        valor: g.valor,
-        descricao: g.descricao,
-      })),
-    ]);
+    );
 
   // Só o que ainda não está no Granatum pode ser selecionado pra criar.
   const pendentesAsaasVisiveis = linhasFiltradas
@@ -387,12 +366,7 @@ function ConciliacaoPage() {
   const todosPendentesSelecionados =
     pendentesAsaasVisiveis.length > 0 &&
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
-  const pendentesGranatumVisiveis = linhasFiltradas
-    .map((l) => l.granatum)
-    .filter((g): g is ItemGranatum => Boolean(g && !g.tipoPar && !g.ignorado));
-  const podeSelecionarMais =
-    pendentesAsaasVisiveis.some((a) => !selecionadosLote.has(a.id)) ||
-    pendentesGranatumVisiveis.some((g) => !selecionadosGranatum.has(g.id));
+  const podeSelecionarMais = pendentesAsaasVisiveis.some((a) => !selecionadosLote.has(a.id));
 
   const criarTodos = useMutation({
     mutationFn: async (itens: ItemAsaas[]) =>
@@ -506,9 +480,6 @@ function ConciliacaoPage() {
                     setSelecionadosLote(
                       (prev) => new Set([...prev, ...pendentesAsaasVisiveis.map((a) => a.id)]),
                     );
-                    setSelecionadosGranatum(
-                      (prev) => new Set([...prev, ...pendentesGranatumVisiveis.map((g) => g.id)]),
-                    );
                   }}
                 >
                   <CheckSquare /> Selecionar todos os pendentes
@@ -537,25 +508,14 @@ function ConciliacaoPage() {
               <div className="corp-card fade-up sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
                 <p className="text-sm text-body">
                   <strong className="text-foreground">{totalSelecionados}</strong> lançamento(s)
-                  selecionado(s)
-                  {selecionadosLote.size > 0 && selecionadosGranatum.size > 0
-                    ? ` — ${selecionadosLote.size} do Asaas e ${selecionadosGranatum.size} do Granatum`
-                    : selecionadosLote.size > 0
-                      ? " do Asaas"
-                      : " do Granatum"}
-                  .
-                  {selecionadosLote.size > 0
-                    ? ' "Criar" usa a descrição, categoria e centro de custo de cada card do Asaas.'
-                    : null}
+                  selecionado(s) do Asaas. "Criar" usa a descrição, categoria e centro de custo de
+                  cada card.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="ghostCorp"
                     size="sm"
-                    onClick={() => {
-                      setSelecionadosLote(new Set());
-                      setSelecionadosGranatum(new Set());
-                    }}
+                    onClick={() => setSelecionadosLote(new Set())}
                   >
                     <X /> Limpar seleção
                   </Button>
@@ -700,12 +660,6 @@ function ConciliacaoPage() {
                             ])
                           }
                           onRestaurar={() => restaurar("granatum", linha.granatum!.id)}
-                          selecionado={selecionadosGranatum.has(linha.granatum.id)}
-                          onSelecionar={
-                            origemVinculo
-                              ? undefined
-                              : (m) => alternarSelecaoGranatum(linha.granatum!.id, m)
-                          }
                           onDesfazer={
                             linha.asaas
                               ? () => desfazer.mutate({ data: { asaasId: linha.asaas!.id } })
