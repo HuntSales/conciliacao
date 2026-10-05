@@ -230,6 +230,20 @@ function ConciliacaoPage() {
 
   const dados = busca.data;
 
+  // Depois de cada busca, tira da seleção de criação o que ganhou par ou
+  // passou a aparecer como já existente no Granatum.
+  useEffect(() => {
+    if (!dados) return;
+    const bloqueados = new Set(
+      dados.asaas.filter((a) => a.tipoPar || a.ignorado || a.jaNoGranatum).map((a) => a.id),
+    );
+    setSelecionadosLote((prev) =>
+      [...prev].some((id) => bloqueados.has(id))
+        ? new Set([...prev].filter((id) => !bloqueados.has(id)))
+        : prev,
+    );
+  }, [dados]);
+
   const linhas = useMemo(() => {
     if (!dados) return [];
     const asaasAjustado = dados.asaas.map((a) =>
@@ -330,7 +344,10 @@ function ConciliacaoPage() {
     });
   };
 
-  const itensLote = (dados?.asaas ?? []).filter((a) => selecionadosLote.has(a.id));
+  // Item que já parece existir no Granatum nunca entra num lote de criação.
+  const itensLote = (dados?.asaas ?? []).filter(
+    (a) => selecionadosLote.has(a.id) && !a.jaNoGranatum,
+  );
   const itensGranatumSelecionados = (dados?.granatum ?? []).filter((g) =>
     selecionadosGranatum.has(g.id),
   );
@@ -363,9 +380,10 @@ function ConciliacaoPage() {
       })),
     ]);
 
+  // Só o que ainda não está no Granatum pode ser selecionado pra criar.
   const pendentesAsaasVisiveis = linhasFiltradas
     .map((l) => l.asaas)
-    .filter((a): a is ItemAsaas => Boolean(a && !a.tipoPar && !a.ignorado));
+    .filter((a): a is ItemAsaas => Boolean(a && !a.tipoPar && !a.ignorado && !a.jaNoGranatum));
   const todosPendentesSelecionados =
     pendentesAsaasVisiveis.length > 0 &&
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
@@ -617,6 +635,19 @@ function ConciliacaoPage() {
                             ])
                           }
                           onRestaurar={() => restaurar("asaas", linha.asaas!.id)}
+                          existenteNoGranatum={dados?.granatum.find(
+                            (g) => g.id === linha.asaas!.jaNoGranatum?.granatumId,
+                          )}
+                          onLigarExistente={
+                            origemVinculo
+                              ? undefined
+                              : () => {
+                                  const g = dados?.granatum.find(
+                                    (x) => x.id === linha.asaas!.jaNoGranatum?.granatumId,
+                                  );
+                                  if (g) setParEmDialogo({ asaas: linha.asaas!, granatum: g });
+                                }
+                          }
                         />
                       ) : (
                         <div className="h-full rounded-none border border-dashed border-border/50" />

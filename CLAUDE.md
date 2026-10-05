@@ -144,7 +144,15 @@ automático vira sugestão, pra baixa depender do clique em "Confirmar".
 
 **Dedupe de criação**: todo lançamento criado no Granatum a partir de um item do
 Asaas grava `identificador_externo = <asaas_id>` — permite achar duplicata mesmo
-fora da tabela local `pares_conciliacao`.
+fora da tabela local `pares_conciliacao`. `criarUmLancamentoAPartirDoAsaas`
+confere isso no Granatum antes de criar (par desfeito não libera recriar). Na
+busca, `detectarJaNoGranatum` (`matching.ts`, puro, testado) marca em
+`jaNoGranatum` o item do Asaas sem par que já parece existir lá — mesmo
+identificador externo, ou mesmo valor num lançamento sem par em qualquer data do
+período (1:1, data mais próxima). Esse item fica sem checkbox, fora do "Criar
+todos"/lote e do saldo projetado, e o card mostra "Ligar a ele"; por valor
+(pode ser coincidência) ainda dá pra "Criar mesmo assim" com segundo clique,
+por identificador não.
 
 ### Engine de matching (`src/lib/matching.ts`)
 

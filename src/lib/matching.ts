@@ -136,3 +136,51 @@ export function conciliar(
     granatumSemPar: [...granatumDisponiveis.keys()],
   };
 }
+
+export type JaNoGranatum = {
+  granatumId: string;
+  /** "identificador": criado a partir deste item (certeza); "valor": mesmo valor, sem par. */
+  motivo: "identificador" | "valor";
+};
+
+/**
+ * Para os itens do Asaas que sobraram sem par, aponta o lançamento do
+ * Granatum (também sem par) que provavelmente é o mesmo — pra impedir criar
+ * duplicado. Primeiro pelo `identificador_externo` (= id do Asaas, gravado ao
+ * criar a partir da conciliação); depois por valor exato, em qualquer data do
+ * período, preferindo a data mais próxima e, empatando, a descrição mais
+ * parecida. 1:1: um lançamento do Granatum só segura um item do Asaas.
+ */
+export function detectarJaNoGranatum(
+  asaas: CandidatoAsaas[],
+  granatum: (CandidatoGranatum & { identificadorExterno: string | null })[],
+): Map<string, JaNoGranatum> {
+  const resultado = new Map<string, JaNoGranatum>();
+  const usados = new Set<string>();
+
+  for (const a of asaas) {
+    const g = granatum.find((x) => x.identificadorExterno === a.id && !usados.has(x.id));
+    if (!g) continue;
+    resultado.set(a.id, { granatumId: g.id, motivo: "identificador" });
+    usados.add(g.id);
+  }
+
+  const restantes = asaas
+    .filter((a) => !resultado.has(a.id))
+    .sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : x.id.localeCompare(y.id)));
+  for (const a of restantes) {
+    const melhor = granatum
+      .filter((g) => !usados.has(g.id) && valoresIguais(a.valor, g.valor))
+      .map((g) => ({
+        g,
+        dias: Math.abs(diferencaDias(a.data, g.data)),
+        score: similaridadeDescricao(a.descricao, g.descricao),
+      }))
+      .sort((x, y) => x.dias - y.dias || y.score - x.score || x.g.id.localeCompare(y.g.id))[0];
+    if (!melhor) continue;
+    resultado.set(a.id, { granatumId: melhor.g.id, motivo: "valor" });
+    usados.add(melhor.g.id);
+  }
+
+  return resultado;
+}

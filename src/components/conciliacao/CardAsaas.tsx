@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { EyeOff, Link2, Plus, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, EyeOff, Link2, Plus, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +16,7 @@ import { formatarDataCurta, formatarMoeda } from "@/lib/format";
 import {
   criarLancamentoAPartirDoAsaas,
   type ItemAsaas,
+  type ItemGranatum,
   type SugestaoParaLancamento,
 } from "@/lib/conciliacao.functions";
 import { folhas } from "@/lib/hierarquia";
@@ -55,6 +56,8 @@ export function CardAsaas({
   onLigarAqui,
   onIgnorar,
   onRestaurar,
+  existenteNoGranatum,
+  onLigarExistente,
 }: {
   item: ItemAsaas;
   categorias: CategoriaGranatum[];
@@ -73,6 +76,9 @@ export function CardAsaas({
   onLigarAqui: () => void;
   onIgnorar: () => void;
   onRestaurar: () => void;
+  /** Lançamento do Granatum apontado por `item.jaNoGranatum`, se estiver na tela. */
+  existenteNoGranatum?: ItemGranatum | undefined;
+  onLigarExistente?: (() => void) | undefined;
 }) {
   // O Granatum rejeita lançamento em categoria/centro que tenha filhos — só
   // folhas da árvore são opções válidas, qualquer que seja a profundidade.
@@ -84,9 +90,13 @@ export function CardAsaas({
 
   const { descricao, categoriaId, centroCustoId } = campos;
   const [salvando, setSalvando] = useState(false);
+  // Mesmo valor no Granatum pode ser coincidência: criar exige um segundo clique.
+  const [confirmandoCriar, setConfirmandoCriar] = useState(false);
 
   const pendente = !item.tipoPar && !item.ignorado;
-  const editavel = pendente && modoVinculo === "nenhum";
+  const jaExiste = pendente ? item.jaNoGranatum : null;
+  const podeCriar = !jaExiste || (jaExiste.motivo === "valor" && confirmandoCriar);
+  const editavel = pendente && modoVinculo === "nenhum" && podeCriar;
 
   const criar = async () => {
     if (!categoriaId) {
@@ -128,7 +138,7 @@ export function CardAsaas({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          {pendente && onSelecionarLote ? (
+          {pendente && !jaExiste && onSelecionarLote ? (
             <Checkbox
               checked={selecionadoLote ?? false}
               onCheckedChange={(v) => onSelecionarLote(Boolean(v))}
@@ -142,6 +152,28 @@ export function CardAsaas({
         </div>
         {badge(item.tipoPar, item.ignorado)}
       </div>
+
+      {jaExiste && modoVinculo === "nenhum" ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border border-gold/40 p-3">
+          <p className="flex items-start gap-2 text-xs text-body">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+            <span>
+              {jaExiste.motivo === "identificador"
+                ? "Já foi criado no Granatum a partir deste item"
+                : "Já existe no Granatum um lançamento sem par com o mesmo valor"}
+              {existenteNoGranatum
+                ? `: "${existenteNoGranatum.descricao}", ${formatarDataCurta(existenteNoGranatum.data)}`
+                : ""}
+              . Ligue em vez de criar, pra não duplicar.
+            </span>
+          </p>
+          {onLigarExistente ? (
+            <Button variant="corp" size="sm" onClick={onLigarExistente}>
+              <Link2 /> Ligar a ele
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {editavel ? (
         <div className="mt-3 space-y-2">
@@ -215,9 +247,16 @@ export function CardAsaas({
                 <Button variant="ghostCorp" size="sm" onClick={onIniciarVinculo}>
                   <Link2 /> Ligar
                 </Button>
-                <Button variant="corpOutline" size="sm" disabled={salvando} onClick={criar}>
-                  <Plus /> {salvando ? "Criando" : "Criar no Granatum"}
-                </Button>
+                {podeCriar ? (
+                  <Button variant="corpOutline" size="sm" disabled={salvando} onClick={criar}>
+                    <Plus />{" "}
+                    {salvando ? "Criando" : jaExiste ? "Confirmar criação" : "Criar no Granatum"}
+                  </Button>
+                ) : jaExiste?.motivo === "valor" ? (
+                  <Button variant="ghostCorp" size="sm" onClick={() => setConfirmandoCriar(true)}>
+                    <Plus /> Criar mesmo assim
+                  </Button>
+                ) : null}
               </>
             )}
           </div>

@@ -11,11 +11,14 @@ import {
   editarLancamentoGranatum,
   buscarLancamentosSimilaresGranatum,
   buscarSaldoContaGranatum,
+  buscarLancamentoPorIdentificadorExterno,
 } from "@/lib/mcp/granatum.server";
 import {
   conciliar,
+  detectarJaNoGranatum,
   similaridadeDescricao,
   type CandidatoAsaas,
+  type JaNoGranatum,
   type CandidatoGranatum,
 } from "@/lib/matching";
 import { folhas } from "@/lib/hierarquia";
@@ -82,6 +85,12 @@ export type ItemAsaas = LancamentoAsaas & {
   tipoPar: "automatico" | "manual" | "sugestao" | null;
   /** Usuário mandou ignorar: fora da engine, dos pendentes e das sugestões. */
   ignorado: boolean;
+  /**
+   * Sem par, mas já parece existir no Granatum (lançamento sem par com o
+   * mesmo identificador externo ou valor). Não pode ser criado de novo —
+   * só ligado a esse lançamento.
+   */
+  jaNoGranatum: JaNoGranatum | null;
 };
 
 export type ItemGranatum = LancamentoGranatum & {
@@ -197,6 +206,21 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
       paresPorGranatum.set(p.granatumId, { asaasId: p.asaasId, tipo: "sugestao" });
     }
 
+    // O que a engine não ligou pode já estar no Granatum com outra data (ou
+    // criado daqui e o par desfeito): marca pra não deixar criar duplicado.
+    const jaNoGranatum = detectarJaNoGranatum(
+      candidatosAsaas.filter((a) => !paresPorAsaas.has(a.id)),
+      granatumRestante
+        .filter((g) => !paresPorGranatum.has(g.id))
+        .map((g) => ({
+          id: g.id,
+          data: g.data,
+          valor: g.valor,
+          descricao: g.descricao,
+          identificadorExterno: g.identificadorExterno,
+        })),
+    );
+
     const itensAsaas: ItemAsaas[] = asaas.map((a) => {
       const par = paresPorAsaas.get(a.id);
       return {
@@ -204,6 +228,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         parGranatumId: par?.granatumId ?? null,
         tipoPar: (par?.tipo as ItemAsaas["tipoPar"]) ?? null,
         ignorado: asaasIgnorado(a.id),
+        jaNoGranatum: jaNoGranatum.get(a.id) ?? null,
       };
     });
     const itensGranatum: ItemGranatum[] = granatum.map((g) => {
@@ -237,7 +262,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         // dos itens do Asaas ainda sem nenhum lançamento no Granatum (serão
         // criados) e dos ligados a um lançamento ainda em aberto (serão
         // baixados). Par com lançamento já baixado já está no saldo atual;
-        // ignorado não entra.
+        // ignorado e o que já parece existir no Granatum não entram.
         saldoGranatumProjetado:
           saldoGranatum === null
             ? null
@@ -245,7 +270,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
               itensAsaas
                 .filter((a) => {
                   if (a.ignorado) return false;
-                  if (!a.tipoPar) return true;
+                  if (!a.tipoPar) return !a.jaNoGranatum;
                   const g = granatum.find((x) => x.id === a.parGranatumId);
                   return Boolean(g && !g.pago);
                 })
@@ -496,6 +521,19 @@ async function criarUmLancamentoAPartirDoAsaas(
     .maybeSingle();
   if (!contaRow?.conta_id_granatum)
     throw new Error("Configure a conta do Granatum em Integrações.");
+
+  // O par local pode ter sido desfeito: confere no próprio Granatum se este
+  // item já foi criado lá antes, pra nunca duplicar.
+  const existente = await buscarLancamentoPorIdentificadorExterno(
+    empresaId,
+    contaRow.conta_id_granatum,
+    item.asaasId,
+  );
+  if (existente) {
+    throw new Error(
+      `Já existe no Granatum um lançamento criado a partir deste item do Asaas ("${existente.descricao}") — use "Ligar" em vez de criar.`,
+    );
+  }
 
   const granatumId = await criarLancamentoGranatum(empresaId, {
     descricao: item.descricao,

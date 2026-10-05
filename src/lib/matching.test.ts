@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conciliar, similaridadeDescricao } from "./matching";
+import { conciliar, detectarJaNoGranatum, similaridadeDescricao } from "./matching";
 import type { CandidatoAsaas, CandidatoGranatum } from "./matching";
 
 function a(over: Partial<CandidatoAsaas> & { id: string }): CandidatoAsaas {
@@ -103,5 +103,46 @@ describe("similaridadeDescricao", () => {
 
   it("ignora acentuação e caixa", () => {
     expect(similaridadeDescricao("Serviço Prestação", "SERVICO PRESTACAO")).toBe(1);
+  });
+});
+
+describe("detectarJaNoGranatum", () => {
+  const gi = (
+    over: Partial<CandidatoGranatum> & { id: string; identificadorExterno?: string | null },
+  ) => ({
+    identificadorExterno: null,
+    ...g(over),
+    ...over,
+  });
+
+  it("acha pelo identificador externo mesmo com valor diferente", () => {
+    const r = detectarJaNoGranatum(
+      [a({ id: "a1", valor: 100 })],
+      [gi({ id: "g1", valor: 90, identificadorExterno: "a1" })],
+    );
+    expect(r.get("a1")).toEqual({ granatumId: "g1", motivo: "identificador" });
+  });
+
+  it("acha por valor em data diferente, preferindo a data mais próxima", () => {
+    const r = detectarJaNoGranatum(
+      [a({ id: "a1", data: "2026-09-10" })],
+      [gi({ id: "g1", data: "2026-09-01" }), gi({ id: "g2", data: "2026-09-12" })],
+    );
+    expect(r.get("a1")).toEqual({ granatumId: "g2", motivo: "valor" });
+  });
+
+  it("é 1:1 — dois do Asaas com o mesmo valor e só um no Granatum", () => {
+    const r = detectarJaNoGranatum(
+      [a({ id: "a1", data: "2026-09-01" }), a({ id: "a2", data: "2026-09-02" })],
+      [gi({ id: "g1", data: "2026-09-02" })],
+    );
+    expect(r.size).toBe(1);
+    expect(r.get("a1")).toEqual({ granatumId: "g1", motivo: "valor" });
+    expect(r.has("a2")).toBe(false);
+  });
+
+  it("não marca quando nenhum valor bate", () => {
+    const r = detectarJaNoGranatum([a({ id: "a1", valor: 100 })], [gi({ id: "g1", valor: -100 })]);
+    expect(r.size).toBe(0);
   });
 });
