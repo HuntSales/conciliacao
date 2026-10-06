@@ -303,6 +303,15 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     pedido dele, os cards do Granatum perderam o checkbox (o Granatum é "só
     pra mostrar") — "Ignorar todos" ficou só do lado do Asaas.
 
+25. **Fatura em aberto fora do período (2026-10-05)**: caso real da Gless —
+    fatura venceu no domingo, pagamento caiu no Asaas na segunda; filtrando
+    "hoje", o Granatum não trazia a fatura (em aberto entra pelo vencimento)
+    e o risco era criar duplicado. Agora a busca procura, só pro que sobrou
+    sem nada, fatura em aberto de 10 dias antes a 5 depois, valor exato, e
+    mostra como sugestão com destaque "Fora do período". Decisões dele:
+    janela 10/5, só valor exato (juros/multa ficam pro "Ligar" manual), só
+    lançamentos em aberto (baixado em outra data não entra).
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

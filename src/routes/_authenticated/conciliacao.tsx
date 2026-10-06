@@ -248,9 +248,11 @@ function ConciliacaoPage() {
     const asaasAjustado = dados.asaas.map((a) =>
       rejeitados.has(a.id) ? { ...a, parGranatumId: null, tipoPar: null } : a,
     );
-    const granatumAjustado = dados.granatum.map((g) =>
-      rejeitados.has(g.id) ? { ...g, parAsaasId: null, tipoPar: null } : g,
-    );
+    // Fatura de fora do período só aparece enquanto é sugestão de algum item
+    // do Asaas — rejeitada, sai da tela (não é do período buscado).
+    const granatumAjustado = dados.granatum
+      .filter((g) => !(g.foraDoPeriodo && rejeitados.has(g.id)))
+      .map((g) => (rejeitados.has(g.id) ? { ...g, parAsaasId: null, tipoPar: null } : g));
     return montarLinhas(asaasAjustado, granatumAjustado);
   }, [dados, rejeitados]);
 

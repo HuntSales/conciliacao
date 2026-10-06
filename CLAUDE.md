@@ -154,6 +154,20 @@ todos"/lote e do saldo projetado, e o card mostra "Ligar a ele"; por valor
 (pode ser coincidência) ainda dá pra "Criar mesmo assim" com segundo clique,
 por identificador não.
 
+**Fatura em aberto fora do período** (`abertosForaDoPeriodo`, 2026-10-05):
+o período filtra lançamento em aberto pelo vencimento, então uma fatura que
+venceu no domingo e foi paga na segunda some do filtro "hoje" — e o item do
+Asaas parecia sem nada no Granatum. Depois da engine e do `jaNoGranatum`, se
+ainda sobrar item do Asaas sem nada, `buscarLancamentos` faz uma segunda
+listagem (`DIAS_ANTES_FORA_DO_PERIODO` = 10 antes, `DIAS_DEPOIS_...` = 5
+depois), só **em aberto**, fora do período, sem par gravado e não ignorado,
+e casa pela mesma `detectarJaNoGranatum` (identificador ou valor **exato**,
+1:1, vencimento mais próximo — decisões do usuário). O que casar entra em
+`granatum` com `foraDoPeriodo: true`, sempre como **sugestão** (Confirmar dá
+a baixa com a data do Asaas), com chip "Fora do período" e aviso em destaque
+no `CardGranatum`; fica fora de conciliados/pendentes do Granatum no resumo.
+Rejeitada, some da tela. Falha nessa segunda busca nunca derruba a busca.
+
 ### Engine de matching (`src/lib/matching.ts`)
 
 Função pura, testada isoladamente. Valor exato (comparado em centavos, não float

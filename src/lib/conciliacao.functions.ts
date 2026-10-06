@@ -22,6 +22,7 @@ import {
   type CandidatoGranatum,
 } from "@/lib/matching";
 import { folhas } from "@/lib/hierarquia";
+import { somarDias } from "@/lib/format";
 import {
   sugerirCategorizacaoLote,
   iaConfigurada,
@@ -97,7 +98,60 @@ export type ItemGranatum = LancamentoGranatum & {
   parAsaasId: string | null;
   tipoPar: "automatico" | "manual" | "sugestao" | null;
   ignorado: boolean;
+  /**
+   * Fatura em aberto de fora do período buscado, trazida só porque bate com
+   * um item do Asaas sem par (ex.: venceu no domingo, pagou na segunda). Sempre
+   * sugestão; não entra nos totais do período.
+   */
+  foraDoPeriodo: boolean;
 };
+
+// Janela extra, em volta do período, pra achar fatura em aberto que venceu
+// antes (atraso, fim de semana, feriado) ou pouco depois (pagou adiantado).
+const DIAS_ANTES_FORA_DO_PERIODO = 10;
+const DIAS_DEPOIS_FORA_DO_PERIODO = 5;
+
+/**
+ * Lançamentos em aberto do Granatum na janela ampliada, fora do período já
+ * buscado, sem par gravado e não ignorados.
+ */
+async function abertosForaDoPeriodo(
+  empresaId: string,
+  contaId: string,
+  dataInicio: string,
+  dataFim: string,
+  jaBuscados: Set<string>,
+): Promise<LancamentoGranatum[]> {
+  const lista = await listarLancamentosGranatum(
+    empresaId,
+    contaId,
+    somarDias(dataInicio, -DIAS_ANTES_FORA_DO_PERIODO),
+    somarDias(dataFim, DIAS_DEPOIS_FORA_DO_PERIODO),
+  );
+  const candidatos = lista.filter(
+    (g) => !g.pago && !jaBuscados.has(g.id) && (g.data < dataInicio || g.data > dataFim),
+  );
+  if (candidatos.length === 0) return [];
+  const ids = candidatos.map((g) => g.id);
+  const [{ data: pares }, { data: ignorados }] = await Promise.all([
+    supabaseAdmin
+      .from("pares_conciliacao")
+      .select("granatum_id")
+      .eq("empresa_id", empresaId)
+      .in("granatum_id", ids),
+    supabaseAdmin
+      .from("lancamentos_ignorados")
+      .select("lancamento_id")
+      .eq("empresa_id", empresaId)
+      .eq("provedor", "granatum")
+      .in("lancamento_id", ids),
+  ]);
+  const fora = new Set([
+    ...(pares ?? []).map((p) => p.granatum_id),
+    ...(ignorados ?? []).map((i) => i.lancamento_id),
+  ]);
+  return candidatos.filter((g) => !fora.has(g.id));
+}
 
 export const buscarLancamentos = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
@@ -221,6 +275,42 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         })),
     );
 
+    // Item do Asaas que mesmo assim ficou sem nada no Granatum: procura fatura
+    // em aberto logo antes/depois do período (mesmo valor exato) e propõe
+    // como sugestão — confirmar dá a baixa, igual a qualquer sugestão.
+    const semNada = candidatosAsaas.filter(
+      (a) => !paresPorAsaas.has(a.id) && !jaNoGranatum.has(a.id),
+    );
+    const extras: LancamentoGranatum[] = [];
+    if (semNada.length > 0) {
+      const abertos = await abertosForaDoPeriodo(
+        empresaId,
+        contaId,
+        data.dataInicio,
+        data.dataFim,
+        granatumIds,
+      ).catch(() => [] as LancamentoGranatum[]);
+      // Mesmo critério de "já existe no Granatum": identificador externo ou
+      // valor exato, 1:1, vencimento mais próximo.
+      const achados = detectarJaNoGranatum(
+        semNada,
+        abertos.map((g) => ({
+          id: g.id,
+          data: g.data,
+          valor: g.valor,
+          descricao: g.descricao,
+          identificadorExterno: g.identificadorExterno,
+        })),
+      );
+      for (const [asaasId, { granatumId }] of achados) {
+        const g = abertos.find((x) => x.id === granatumId);
+        if (!g) continue;
+        extras.push(g);
+        paresPorAsaas.set(asaasId, { granatumId, tipo: "sugestao" });
+        paresPorGranatum.set(granatumId, { asaasId, tipo: "sugestao" });
+      }
+    }
+
     const itensAsaas: ItemAsaas[] = asaas.map((a) => {
       const par = paresPorAsaas.get(a.id);
       return {
@@ -238,8 +328,20 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         parAsaasId: par?.asaasId ?? null,
         tipoPar: (par?.tipo as ItemGranatum["tipoPar"]) ?? null,
         ignorado: granatumIgnorado(g.id),
+        foraDoPeriodo: false,
       };
     });
+    for (const g of extras) {
+      const par = paresPorGranatum.get(g.id);
+      itensGranatum.push({
+        ...g,
+        parAsaasId: par?.asaasId ?? null,
+        tipoPar: "sugestao",
+        ignorado: false,
+        foraDoPeriodo: true,
+      });
+    }
+    const granatumDoPeriodo = itensGranatum.filter((g) => !g.foraDoPeriodo);
 
     return {
       asaas: itensAsaas,
@@ -248,12 +350,12 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         totalAsaas: asaas.reduce((s, a) => s + a.valor, 0),
         totalGranatum: granatum.reduce((s, g) => s + g.valor, 0),
         conciliadosAsaas: itensAsaas.filter((a) => a.tipoPar && a.tipoPar !== "sugestao").length,
-        conciliadosGranatum: itensGranatum.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
+        conciliadosGranatum: granatumDoPeriodo.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
           .length,
         pendentesAsaas: itensAsaas.filter(
           (a) => !a.ignorado && (!a.tipoPar || a.tipoPar === "sugestao"),
         ).length,
-        pendentesGranatum: itensGranatum.filter(
+        pendentesGranatum: granatumDoPeriodo.filter(
           (g) => !g.ignorado && (!g.tipoPar || g.tipoPar === "sugestao"),
         ).length,
         saldoAsaas,
@@ -271,7 +373,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
                 .filter((a) => {
                   if (a.ignorado) return false;
                   if (!a.tipoPar) return !a.jaNoGranatum;
-                  const g = granatum.find((x) => x.id === a.parGranatumId);
+                  const g = itensGranatum.find((x) => x.id === a.parGranatumId);
                   return Boolean(g && !g.pago);
                 })
                 .reduce((s, a) => s + a.valor, 0),

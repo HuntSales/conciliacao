@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, EyeOff, Link2, RotateCcw, Undo2, X } from "lucide-react";
+import { AlertTriangle, Check, EyeOff, Link2, RotateCcw, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -133,8 +133,24 @@ export function CardGranatum({
           {formatarDataCurta(item.data)}
           {item.pago ? null : " · vencimento, em aberto"}
         </p>
-        {badge(item.tipoPar, item.ignorado)}
+        <div className="flex flex-wrap justify-end gap-1">
+          {item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
+            <span className="chip border-gold bg-gold/10 text-gold">Fora do período</span>
+          ) : null}
+          {badge(item.tipoPar, item.ignorado)}
+        </div>
       </div>
+
+      {item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
+        <p className="flex items-start gap-2 border border-gold/60 bg-gold/10 p-3 text-xs text-body">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+          <span>
+            Fatura em aberto com o mesmo valor, vencimento em {formatarDataCurta(item.data)} — fora
+            do período buscado. Se for este pagamento, confirme pra dar baixa com a data do Asaas,
+            em vez de criar outro lançamento.
+          </span>
+        </p>
+      ) : null}
 
       <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
 
