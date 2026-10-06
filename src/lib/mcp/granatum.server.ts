@@ -284,6 +284,9 @@ function normalizarLancamento(l: LancamentoBruto): LancamentoGranatum | null {
 }
 
 /** Lista lançamentos já baixados (pagos/recebidos) da conta configurada, no período. */
+const LIMITE_PAGINA_MCP = 50;
+const PAGINAS_EM_PARALELO = 4;
+
 export async function listarLancamentosGranatum(
   empresaId: string,
   contaId: string,
@@ -296,20 +299,36 @@ export async function listarLancamentosGranatum(
   let start = 0;
 
   if (via) {
-    for (;;) {
-      const pagina = await chamarTool<LancamentoBruto[]>(via.mcp, via.tool, {
-        conta_id: Number(contaId),
-        data_inicio: dataInicio,
-        data_fim: dataFim,
-        limit,
-        start,
-      });
-      for (const l of pagina) {
-        const norm = normalizarLancamento(l);
-        if (norm) resultado.push(norm);
+    // O servidor MCP corta a resposta em 100.000 caracteres e cada lançamento
+    // ocupa ~1.050 — página de 500 chegava truncada (JSON inválido) e virava
+    // "nenhum lançamento" em silêncio. Páginas de 50 (~53 mil) com folga,
+    // pedidas em lotes paralelos pra período longo não ficar lento.
+    for (let inicio = 0; ; inicio += LIMITE_PAGINA_MCP * PAGINAS_EM_PARALELO) {
+      const paginas = await Promise.all(
+        Array.from({ length: PAGINAS_EM_PARALELO }, (_, i) =>
+          chamarTool<unknown>(via.mcp, via.tool, {
+            conta_id: Number(contaId),
+            data_inicio: dataInicio,
+            data_fim: dataFim,
+            limit: LIMITE_PAGINA_MCP,
+            start: inicio + i * LIMITE_PAGINA_MCP,
+          }),
+        ),
+      );
+      let acabou = false;
+      for (const pagina of paginas) {
+        if (!Array.isArray(pagina)) {
+          throw new Error(
+            "O Granatum devolveu a lista de lançamentos incompleta (resposta cortada pelo MCP). Tente um período menor.",
+          );
+        }
+        for (const l of pagina as LancamentoBruto[]) {
+          const norm = normalizarLancamento(l);
+          if (norm) resultado.push(norm);
+        }
+        if (pagina.length < LIMITE_PAGINA_MCP) acabou = true;
       }
-      if (pagina.length < limit) break;
-      start += limit;
+      if (acabou) break;
     }
     return resultado;
   }

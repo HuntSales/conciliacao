@@ -116,6 +116,12 @@ Depois de qualquer migration nova: `supabase db push` (projeto já linkado) e
 `editar_lancamento`), se chamam a tool mapeada em `tool_mapping` ou caem no
 fallback REST direto (`credenciais_fallback`).
 
+**Limite de 100.000 caracteres por resposta de tool** (servidor do Multi
+MCPs): listagem grande chega truncada, e `chamarTool` devolve o texto cru
+quando o JSON falha. Listagem paginada tem que usar página pequena o bastante
+(lançamentos do Granatum: 50, ~1.050 caracteres cada) e conferir
+`Array.isArray` na resposta — nunca tratar resposta inválida como lista vazia.
+
 **Detecção automática de tool mapping** (`integracoes.functions.ts`,
 `autoDetectarMapeamento`): ao testar conexão, casa cada tool descoberta por regex
 contra as 7 funções, só preenche `tool_mapping` para funções ainda sem mapeamento

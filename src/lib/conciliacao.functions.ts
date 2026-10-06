@@ -117,17 +117,11 @@ const DIAS_DEPOIS_FORA_DO_PERIODO = 5;
  */
 async function abertosForaDoPeriodo(
   empresaId: string,
-  contaId: string,
+  lista: LancamentoGranatum[],
   dataInicio: string,
   dataFim: string,
   jaBuscados: Set<string>,
 ): Promise<LancamentoGranatum[]> {
-  const lista = await listarLancamentosGranatum(
-    empresaId,
-    contaId,
-    somarDias(dataInicio, -DIAS_ANTES_FORA_DO_PERIODO),
-    somarDias(dataFim, DIAS_DEPOIS_FORA_DO_PERIODO),
-  );
   const candidatos = lista.filter(
     (g) => !g.pago && !jaBuscados.has(g.id) && (g.data < dataInicio || g.data > dataFim),
   );
@@ -159,6 +153,16 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const empresaId = context.empresaId;
     const contaId = await contaConfigurada(empresaId);
+
+    // A janela ampliada (faturas em aberto fora do período) sai junto com a
+    // busca principal, pra não somar o tempo dela — só é usada se sobrar item
+    // do Asaas sem nada no Granatum. Falha aqui nunca derruba a busca.
+    const janelaAmpliada = listarLancamentosGranatum(
+      empresaId,
+      contaId,
+      somarDias(data.dataInicio, -DIAS_ANTES_FORA_DO_PERIODO),
+      somarDias(data.dataFim, DIAS_DEPOIS_FORA_DO_PERIODO),
+    ).catch(() => [] as LancamentoGranatum[]);
 
     const [asaas, granatum, saldoAsaas, saldoGranatum] = await Promise.all([
       buscarExtratoAsaas(empresaId, data.dataInicio, data.dataFim),
@@ -285,7 +289,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
     if (semNada.length > 0) {
       const abertos = await abertosForaDoPeriodo(
         empresaId,
-        contaId,
+        await janelaAmpliada,
         data.dataInicio,
         data.dataFim,
         granatumIds,

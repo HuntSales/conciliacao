@@ -312,6 +312,16 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     janela 10/5, só valor exato (juros/multa ficam pro "Ligar" manual), só
     lançamentos em aberto (baixado em outra data não entra).
 
+26. **Resposta do MCP cortada em 100.000 caracteres (2026-10-05)**: achado
+    ao investigar por que a Gless não aparecia. `listarLancamentosGranatum`
+    pedia páginas de 500; cada lançamento ocupa ~1.050 caracteres, então
+    qualquer período com mais de ~90 lançamentos chegava truncado, o JSON
+    falhava e a lista virava **vazia em silêncio** (afetava a busca da
+    conciliação em períodos maiores, o histórico de 180 dias da sugestão e
+    os recentes da aba Lançamentos). Agora: páginas de 50, 4 em paralelo, e
+    resposta que não for lista vira erro explícito. Medido com dados reais:
+    janela da Gless 0 -> 111 lançamentos; 180 dias 0 -> 2.231 (~20 s).
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi
