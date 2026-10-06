@@ -280,7 +280,11 @@ primeiro, parando no primeiro histórico com similaridade ≥
 
 1. Histórico já carregado de uma vez pro lote inteiro: local
    (`pares_conciliacao.categoria_id`/`centro_custo_id`/`descricao`) + últimos
-   `DIAS_HISTORICO_GRANATUM` dias da própria conta no Granatum.
+   `DIAS_HISTORICO_GRANATUM` (180) dias da própria conta no Granatum. Até
+   2026-10-05 essa leitura voltava sempre vazia (resposta do MCP cortada em
+   100 mil caracteres — ver "Cliente MCP"); corrigida, custa ~20 s (~2.200
+   lançamentos, 45 páginas) e roda depois da busca, sem travar a tela. 60
+   dias foi cogitado pra acelerar; o usuário preferiu manter 180 por ora.
 2. Busca textual no Granatum (`buscarLancamentosSimilaresGranatum`, parâmetro
    `busca` da tool `listar_lancamentos`), só pros que ainda faltam — pega
    lançamentos mais antigos. Sem tokens, concorrência limitada.

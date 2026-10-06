@@ -321,6 +321,10 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     os recentes da aba Lançamentos). Agora: páginas de 50, 4 em paralelo, e
     resposta que não for lista vira erro explícito. Medido com dados reais:
     janela da Gless 0 -> 111 lançamentos; 180 dias 0 -> 2.231 (~20 s).
+    Histórico de 180 dias da sugestão (`DIAS_HISTORICO_GRANATUM`): proposta
+    de reduzir pra 60 dias (mensais aparecem 2x, a busca textual cobre o
+    resto, ~6-8 s); o William decidiu manter 180 por enquanto. Com o
+    histórico funcionando, menos itens devem chegar à IA.
 
 ## Estado atual e pendências conhecidas
 
