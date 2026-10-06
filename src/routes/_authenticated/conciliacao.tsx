@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, EyeOff, Layers, Plus, RefreshCw, X } from "lucide-react";
+import { CheckCheck, CheckSquare, EyeOff, Layers, Plus, RefreshCw, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,9 @@ import {
   editarLancamento,
   ignorarLancamentos,
   listarCadastros,
+  recusarSugestao,
   restaurarLancamento,
+  restaurarSugestao,
   sugerirEmLote,
   type ItemAsaas,
   type ItemGranatum,
@@ -76,7 +78,11 @@ function ConciliacaoPage() {
     asaas: ItemAsaas;
     granatum: ItemGranatum;
   } | null>(null);
-  const [rejeitados, setRejeitados] = useState<Set<string>>(new Set());
+  // Sugestões cuja ligação o usuário interrompeu (por id do Asaas). Já vão
+  // gravadas no banco na hora do clique (nunca mais sugeridas); aqui só
+  // mantém os dois cards lado a lado até a próxima busca, pra dar pra
+  // restaurar com outro clique, e tira do "Conciliar todas".
+  const [interrompidas, setInterrompidas] = useState<Set<string>>(new Set());
   // Seleção é só do lado do Asaas (o que ainda pode ser criado no Granatum).
   // Os cards do Granatum não têm seleção — pedido explícito, pra não parecer
   // que dá pra criar de novo o que já existe lá.
@@ -124,6 +130,26 @@ function ConciliacaoPage() {
   const mudarCamposAsaas = (id: string, parcial: Partial<CamposAsaas>) =>
     setEdicoesAsaas((prev) => ({ ...prev, [id]: { ...prev[id], ...parcial } }));
 
+  // Mesmo esquema pros cards do Granatum: "Conciliar todas" usa o que está em
+  // cada card. Sem categoria no Granatum, pré-preenche com a sugestão
+  // (histórico/IA) — só grava ao Salvar/Confirmar.
+  const [edicoesGranatum, setEdicoesGranatum] = useState<Record<string, Partial<CamposGranatum>>>(
+    {},
+  );
+
+  const camposGranatum = (item: ItemGranatum): CamposGranatum => {
+    const ed = edicoesGranatum[item.id];
+    const s = item.categoriaId ? undefined : sugestoes[`g:${item.id}`];
+    return {
+      descricao: ed?.descricao ?? item.descricao,
+      categoriaId: ed?.categoriaId ?? item.categoriaId ?? s?.categoriaId ?? null,
+      centroCustoId: ed?.centroCustoId ?? item.centroCustoId ?? s?.centroCustoId ?? null,
+    };
+  };
+
+  const mudarCamposGranatum = (id: string, parcial: Partial<CamposGranatum>) =>
+    setEdicoesGranatum((prev) => ({ ...prev, [id]: { ...prev[id], ...parcial } }));
+
   useEffect(() => {
     const d = busca.data;
     if (!d) return;
@@ -163,60 +189,109 @@ function ConciliacaoPage() {
     // cima, fácil de não notar depois de rolar a tela).
     setOrigemVinculo(null);
     setSelecionadosLote(new Set());
+    setInterrompidas(new Set());
     busca.mutate();
   };
 
-  const confirmar = useMutation({
-    mutationFn: async ({
-      asaas,
-      granatum,
-      campos,
-    }: {
-      asaas: ItemAsaas;
-      granatum: ItemGranatum;
-      campos: CamposGranatum;
-    }) => {
-      // O card pode ter sido editado ou pré-preenchido pela sugestão — aplica
-      // no Granatum antes de confirmar o par, pra "Confirmar" já resolver tudo.
-      const mudou =
-        campos.descricao !== granatum.descricao ||
-        campos.categoriaId !== granatum.categoriaId ||
-        campos.centroCustoId !== granatum.centroCustoId;
-      if (mudou) {
-        await editarLancamento({
-          data: {
-            id: granatum.id,
-            descricao: campos.descricao,
-            categoriaId: campos.categoriaId ?? undefined,
-            centroCustoId: campos.centroCustoId,
-            antes: {
-              descricao: granatum.descricao,
-              categoriaId: granatum.categoriaId,
-              centroCustoId: granatum.centroCustoId,
-            },
-          },
-        });
-      }
-      await confirmarPar({
+  const conciliarSugestao = async ({
+    asaas,
+    granatum,
+    campos,
+  }: {
+    asaas: ItemAsaas;
+    granatum: ItemGranatum;
+    campos: CamposGranatum;
+  }) => {
+    // O card pode ter sido editado ou pré-preenchido pela sugestão — aplica
+    // no Granatum antes de confirmar o par, pra "Confirmar" já resolver tudo.
+    const mudou =
+      campos.descricao !== granatum.descricao ||
+      campos.categoriaId !== granatum.categoriaId ||
+      campos.centroCustoId !== granatum.centroCustoId;
+    if (mudou) {
+      await editarLancamento({
         data: {
-          asaasId: asaas.id,
-          granatumId: granatum.id,
-          data: granatum.data,
-          valor: granatum.valor,
-          tipo: "manual",
+          id: granatum.id,
           descricao: campos.descricao,
           categoriaId: campos.categoriaId ?? undefined,
           centroCustoId: campos.centroCustoId,
-          ...(granatum.pago ? {} : { baixarEm: asaas.data }),
+          antes: {
+            descricao: granatum.descricao,
+            categoriaId: granatum.categoriaId,
+            centroCustoId: granatum.centroCustoId,
+          },
         },
       });
-    },
+    }
+    await confirmarPar({
+      data: {
+        asaasId: asaas.id,
+        granatumId: granatum.id,
+        data: granatum.data,
+        valor: granatum.valor,
+        tipo: "manual",
+        descricao: campos.descricao,
+        categoriaId: campos.categoriaId ?? undefined,
+        centroCustoId: campos.centroCustoId,
+        ...(granatum.pago ? {} : { baixarEm: asaas.data }),
+      },
+    });
+  };
+
+  const confirmar = useMutation({
+    mutationFn: conciliarSugestao,
     onSuccess: () => {
       toast.success("Conciliado");
       invalidarBusca();
     },
     onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar"),
   });
+
+  // Um por um, sem abortar no meio: cada sugestão tem seu próprio sucesso/falha.
+  const conciliarTodas = useMutation({
+    mutationFn: async (pares: { asaas: ItemAsaas; granatum: ItemGranatum }[]) => {
+      const falhas: string[] = [];
+      for (const par of pares) {
+        try {
+          await conciliarSugestao({ ...par, campos: camposGranatum(par.granatum) });
+        } catch (erro) {
+          falhas.push(
+            `${par.asaas.descricao}: ${erro instanceof Error ? erro.message : "falha ao conciliar"}`,
+          );
+        }
+      }
+      return { total: pares.length, falhas };
+    },
+    onSuccess: ({ total, falhas }) => {
+      if (falhas.length === 0) toast.success(`${total} sugestão(ões) conciliada(s)`);
+      else
+        toast.error(
+          `${total - falhas.length} conciliada(s), ${falhas.length} falharam — ${falhas[0] ?? ""}`,
+        );
+      invalidarBusca();
+    },
+    onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar"),
+  });
+
+  const alternarInterrupcao = async (asaas: ItemAsaas, granatum: ItemGranatum) => {
+    const interromper = !interrompidas.has(asaas.id);
+    const aplicar = (marcar: boolean) =>
+      setInterrompidas((prev) => {
+        const novo = new Set(prev);
+        if (marcar) novo.add(asaas.id);
+        else novo.delete(asaas.id);
+        return novo;
+      });
+    aplicar(interromper);
+    try {
+      const par = { data: { asaasId: asaas.id, granatumId: granatum.id } };
+      if (interromper) await recusarSugestao(par);
+      else await restaurarSugestao(par);
+    } catch (erro) {
+      aplicar(!interromper);
+      toast.error(erro instanceof Error ? erro.message : "Falha ao salvar a interrupção");
+    }
+  };
 
   const desfazer = useMutation({
     mutationFn: desfazerPar,
@@ -245,16 +320,8 @@ function ConciliacaoPage() {
 
   const linhas = useMemo(() => {
     if (!dados) return [];
-    const asaasAjustado = dados.asaas.map((a) =>
-      rejeitados.has(a.id) ? { ...a, parGranatumId: null, tipoPar: null } : a,
-    );
-    // Fatura de fora do período só aparece enquanto é sugestão de algum item
-    // do Asaas — rejeitada, sai da tela (não é do período buscado).
-    const granatumAjustado = dados.granatum
-      .filter((g) => !(g.foraDoPeriodo && rejeitados.has(g.id)))
-      .map((g) => (rejeitados.has(g.id) ? { ...g, parAsaasId: null, tipoPar: null } : g));
-    return montarLinhas(asaasAjustado, granatumAjustado);
-  }, [dados, rejeitados]);
+    return montarLinhas(dados.asaas, dados.granatum);
+  }, [dados]);
 
   const linhasFiltradas = linhas.filter((l) => {
     const ignorada = Boolean(l.asaas?.ignorado || l.granatum?.ignorado);
@@ -370,6 +437,11 @@ function ConciliacaoPage() {
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
   const podeSelecionarMais = pendentesAsaasVisiveis.some((a) => !selecionadosLote.has(a.id));
 
+  const sugestoesVisiveis = linhasFiltradas.flatMap((l) =>
+    l.asaas?.tipoPar === "sugestao" && l.granatum ? [{ asaas: l.asaas, granatum: l.granatum }] : [],
+  );
+  const sugestoesParaConciliar = sugestoesVisiveis.filter((p) => !interrompidas.has(p.asaas.id));
+
   const criarTodos = useMutation({
     mutationFn: async (itens: ItemAsaas[]) =>
       criarCadaUmAPartirDoAsaas({
@@ -473,11 +545,28 @@ function ConciliacaoPage() {
                   {rotulo}
                 </Button>
               ))}
+              {!origemVinculo && sugestoesVisiveis.length > 0 ? (
+                <Button
+                  variant="corp"
+                  size="sm"
+                  className="ml-auto"
+                  disabled={sugestoesParaConciliar.length === 0 || conciliarTodas.isPending}
+                  title="Interrompa (clicando na linha entre os cards) as ligações erradas antes"
+                  onClick={() => conciliarTodas.mutate(sugestoesParaConciliar)}
+                >
+                  <CheckCheck />{" "}
+                  {conciliarTodas.isPending
+                    ? "Conciliando"
+                    : sugestoesParaConciliar.length === sugestoesVisiveis.length
+                      ? `Conciliar todas as sugestões (${sugestoesVisiveis.length})`
+                      : `Conciliar selecionadas (${sugestoesParaConciliar.length})`}
+                </Button>
+              ) : null}
               {!origemVinculo && podeSelecionarMais ? (
                 <Button
                   variant="ghostCorp"
                   size="sm"
-                  className="ml-auto"
+                  className={sugestoesVisiveis.length > 0 ? "" : "ml-auto"}
                   onClick={() => {
                     setSelecionadosLote(
                       (prev) => new Set([...prev, ...pendentesAsaasVisiveis.map((a) => a.id)]),
@@ -618,11 +707,31 @@ function ConciliacaoPage() {
                     <div className="hidden justify-center pt-6 md:flex">
                       {linha.asaas && linha.granatum ? (
                         linha.asaas.tipoPar === "sugestao" ? (
-                          <div className="flex w-full items-center">
-                            <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
-                            <div className="w-full flex-1 border-t-[3px] border-dashed border-gold" />
-                            <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
-                          </div>
+                          interrompidas.has(linha.asaas.id) ? (
+                            <button
+                              type="button"
+                              title="Ligação interrompida — clique pra restaurar"
+                              onClick={() => alternarInterrupcao(linha.asaas!, linha.granatum!)}
+                              className="relative flex w-full items-center py-2"
+                            >
+                              <div className="h-3 w-3 shrink-0 rounded-full border-2 border-destructive bg-surface" />
+                              <div className="w-full flex-1 border-t-[3px] border-dashed border-destructive/60" />
+                              <div className="h-3 w-3 shrink-0 rounded-full border-2 border-destructive bg-surface" />
+                              <X className="absolute left-1/2 h-4 w-4 -translate-x-1/2 rounded-full bg-surface text-destructive" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              title="Clique pra interromper esta ligação"
+                              onClick={() => alternarInterrupcao(linha.asaas!, linha.granatum!)}
+                              className="group relative flex w-full items-center py-2"
+                            >
+                              <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
+                              <div className="w-full flex-1 border-t-[3px] border-dashed border-gold group-hover:border-destructive/60" />
+                              <div className="h-3 w-3 shrink-0 rounded-full border-2 border-gold bg-surface" />
+                              <Unlink className="absolute left-1/2 hidden h-4 w-4 -translate-x-1/2 rounded-full bg-surface text-destructive group-hover:block" />
+                            </button>
+                          )
                         ) : (
                           <div className="flex w-full items-center">
                             <div className="h-3 w-3 shrink-0 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]" />
@@ -641,6 +750,8 @@ function ConciliacaoPage() {
                           item={linha.granatum}
                           categorias={cadastros.data?.categorias ?? []}
                           centros={cadastros.data?.centrosCusto ?? []}
+                          campos={camposGranatum(linha.granatum)}
+                          onMudarCampos={(p) => mudarCamposGranatum(linha.granatum!.id, p)}
                           sugestao={sugestoes[`g:${linha.granatum.id}`]}
                           buscandoSugestao={sugestoesEmAndamento.has(`g:${linha.granatum.id}`)}
                           modoVinculo={modoParaGranatum(linha.granatum)}
@@ -677,12 +788,12 @@ function ConciliacaoPage() {
                                   })
                               : undefined
                           }
-                          onRejeitarSugestao={() => {
-                            if (!linha.asaas || !linha.granatum) return;
-                            setRejeitados((prev) =>
-                              new Set(prev).add(linha.asaas!.id).add(linha.granatum!.id),
-                            );
-                          }}
+                          interrompida={Boolean(linha.asaas && interrompidas.has(linha.asaas.id))}
+                          onAlternarInterrupcao={
+                            linha.asaas
+                              ? () => alternarInterrupcao(linha.asaas!, linha.granatum!)
+                              : undefined
+                          }
                         />
                       ) : (
                         <div className="h-full rounded-none border border-dashed border-border/50" />

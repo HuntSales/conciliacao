@@ -388,6 +388,41 @@ export type Database = {
           },
         ];
       };
+      sugestoes_recusadas: {
+        Row: {
+          asaas_id: string;
+          criado_em: string;
+          empresa_id: string;
+          granatum_id: string;
+          id: string;
+          usuario_id: string | null;
+        };
+        Insert: {
+          asaas_id: string;
+          criado_em?: string;
+          empresa_id: string;
+          granatum_id: string;
+          id?: string;
+          usuario_id?: string | null;
+        };
+        Update: {
+          asaas_id?: string;
+          criado_em?: string;
+          empresa_id?: string;
+          granatum_id?: string;
+          id?: string;
+          usuario_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sugestoes_recusadas_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       tool_mapping: {
         Row: {
           atualizado_em: string;

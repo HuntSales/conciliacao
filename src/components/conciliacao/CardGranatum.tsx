@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, EyeOff, Link2, RotateCcw, Undo2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Check, EyeOff, Link2, RotateCcw, Undo2, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,14 +22,18 @@ import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import type { ModoVinculo } from "./CardAsaas";
 import { AvisoSugestao } from "./AvisoSugestao";
 
+/** O que vai pro Granatum ao salvar/confirmar — fica na página pra "Conciliar todas" ler. */
 export type CamposGranatum = {
   descricao: string;
   categoriaId: string | null;
   centroCustoId: string | null;
 };
 
-function badge(tipoPar: ItemGranatum["tipoPar"], ignorado: boolean) {
+function badge(tipoPar: ItemGranatum["tipoPar"], ignorado: boolean, interrompida: boolean) {
   if (ignorado) return <span className="chip">Ignorado</span>;
+  if (tipoPar === "sugestao" && interrompida) {
+    return <span className="chip border-destructive/50 text-destructive">Interrompida</span>;
+  }
   if (tipoPar === "automatico" || tipoPar === "manual") {
     return <span className="chip border-success/40 text-success">Conciliado</span>;
   }
@@ -43,12 +47,15 @@ export function CardGranatum({
   item,
   categorias,
   centros,
+  campos,
+  onMudarCampos,
   sugestao,
   buscandoSugestao,
   modoVinculo,
   onDesfazer,
   onConfirmarSugestao,
-  onRejeitarSugestao,
+  interrompida,
+  onAlternarInterrupcao,
   onIniciarVinculo,
   onCancelarVinculo,
   onLigarAqui,
@@ -59,6 +66,9 @@ export function CardGranatum({
   item: ItemGranatum;
   categorias: CategoriaGranatum[];
   centros: CentroCustoGranatum[];
+  /** Já com a sugestão aplicada no que o usuário ainda não escolheu. */
+  campos: CamposGranatum;
+  onMudarCampos: (parcial: Partial<CamposGranatum>) => void;
   /** Só vem para lançamento ainda sem categoria no Granatum. */
   sugestao?: SugestaoParaLancamento | undefined;
   buscandoSugestao?: boolean | undefined;
@@ -66,7 +76,9 @@ export function CardGranatum({
   onDesfazer?: (() => void) | undefined;
   /** Recebe o que está nos campos do card — pode ter sido editado/pré-preenchido. */
   onConfirmarSugestao?: ((campos: CamposGranatum) => void) | undefined;
-  onRejeitarSugestao?: (() => void) | undefined;
+  /** Sugestão cuja ligação o usuário interrompeu (fica fora do "Conciliar todas"). */
+  interrompida?: boolean | undefined;
+  onAlternarInterrupcao?: (() => void) | undefined;
   onIniciarVinculo: () => void;
   onCancelarVinculo: () => void;
   onLigarAqui: () => void;
@@ -82,18 +94,10 @@ export function CardGranatum({
   );
   const centrosFolha = useMemo(() => folhas(centros), [centros]);
 
-  const [descricao, setDescricao] = useState(item.descricao);
-  const [categoriaId, setCategoriaId] = useState(item.categoriaId ?? "");
-  const [centroCustoId, setCentroCustoId] = useState(item.centroCustoId ?? "");
+  const descricao = campos.descricao;
+  const categoriaId = campos.categoriaId ?? "";
+  const centroCustoId = campos.centroCustoId ?? "";
   const [salvando, setSalvando] = useState(false);
-
-  // Sem categoria no Granatum: pré-preenche com a sugestão (histórico/IA),
-  // mas só grava quando o usuário clicar em Salvar ou Confirmar.
-  useEffect(() => {
-    if (!sugestao || item.categoriaId) return;
-    if (sugestao.categoriaId) setCategoriaId((atual) => atual || sugestao.categoriaId!);
-    if (sugestao.centroCustoId) setCentroCustoId((atual) => atual || sugestao.centroCustoId!);
-  }, [sugestao, item.categoriaId]);
 
   const salvar = async () => {
     setSalvando(true);
@@ -123,7 +127,11 @@ export function CardGranatum({
   return (
     <div
       className={`corp-card corp-card-hover space-y-3 p-4 ${
-        item.tipoPar === "sugestao" ? "border-dashed border-gold/50" : ""
+        item.tipoPar === "sugestao"
+          ? interrompida
+            ? "border-dashed border-destructive/50"
+            : "border-dashed border-gold/50"
+          : ""
       } ${modoVinculo === "origem" ? "border-primary shadow-glow" : ""} ${
         modoVinculo === "alvo" ? "border-gold" : ""
       }`}
@@ -137,7 +145,7 @@ export function CardGranatum({
           {item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
             <span className="chip border-gold bg-gold/10 text-gold">Fora do período</span>
           ) : null}
-          {badge(item.tipoPar, item.ignorado)}
+          {badge(item.tipoPar, item.ignorado, interrompida ?? false)}
         </div>
       </div>
 
@@ -152,7 +160,7 @@ export function CardGranatum({
         </p>
       ) : null}
 
-      <Input value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+      <Input value={descricao} onChange={(e) => onMudarCampos({ descricao: e.target.value })} />
 
       {!item.categoriaId ? (
         <AvisoSugestao sugestao={sugestao} buscando={buscandoSugestao ?? false} />
@@ -161,7 +169,7 @@ export function CardGranatum({
       <div className="grid gap-2">
         <div className="space-y-1">
           <Label className="lbl">Categoria</Label>
-          <Select value={categoriaId} onValueChange={setCategoriaId}>
+          <Select value={categoriaId} onValueChange={(v) => onMudarCampos({ categoriaId: v })}>
             <SelectTrigger>
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
@@ -176,7 +184,7 @@ export function CardGranatum({
         </div>
         <div className="space-y-1">
           <Label className="lbl">Centro de custo</Label>
-          <Select value={centroCustoId} onValueChange={setCentroCustoId}>
+          <Select value={centroCustoId} onValueChange={(v) => onMudarCampos({ centroCustoId: v })}>
             <SelectTrigger>
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
@@ -198,7 +206,11 @@ export function CardGranatum({
           {formatarMoeda(item.valor)}
         </p>
         <div className="flex flex-wrap justify-end gap-2">
-          {item.tipoPar === "sugestao" ? (
+          {item.tipoPar === "sugestao" && interrompida ? (
+            <Button variant="ghostCorp" size="sm" onClick={onAlternarInterrupcao}>
+              <RotateCcw /> Restaurar ligação
+            </Button>
+          ) : item.tipoPar === "sugestao" ? (
             <>
               <Button
                 variant="corp"
@@ -213,8 +225,8 @@ export function CardGranatum({
               >
                 <Check /> Confirmar
               </Button>
-              <Button variant="ghostCorp" size="sm" onClick={onRejeitarSugestao}>
-                <X /> Rejeitar
+              <Button variant="ghostCorp" size="sm" onClick={onAlternarInterrupcao}>
+                <Unlink /> Interromper
               </Button>
             </>
           ) : null}

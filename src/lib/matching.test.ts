@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conciliar, detectarJaNoGranatum, similaridadeDescricao } from "./matching";
+import { chavePar, conciliar, detectarJaNoGranatum, similaridadeDescricao } from "./matching";
 import type { CandidatoAsaas, CandidatoGranatum } from "./matching";
 
 function a(over: Partial<CandidatoAsaas> & { id: string }): CandidatoAsaas {
@@ -143,6 +143,32 @@ describe("detectarJaNoGranatum", () => {
 
   it("não marca quando nenhum valor bate", () => {
     const r = detectarJaNoGranatum([a({ id: "a1", valor: 100 })], [gi({ id: "g1", valor: -100 })]);
+    expect(r.size).toBe(0);
+  });
+});
+
+describe("pares proibidos (ligação interrompida)", () => {
+  it("conciliar não propõe o par proibido, mas liga cada lado a outro", () => {
+    const r = conciliar(
+      [a({ id: "a1" }), a({ id: "a2" })],
+      [g({ id: "g1" })],
+      0,
+      new Set([chavePar("a1", "g1")]),
+    );
+    expect(r.pares).toEqual([{ asaasId: "a2", granatumId: "g1", tipo: "automatico" }]);
+    expect(r.asaasSemPar).toEqual(["a1"]);
+  });
+
+  it("detectarJaNoGranatum ignora o par proibido por valor e por identificador", () => {
+    const proibidos = new Set([chavePar("a1", "g1"), chavePar("a2", "g2")]);
+    const r = detectarJaNoGranatum(
+      [a({ id: "a1" }), a({ id: "a2", valor: 50 })],
+      [
+        { ...g({ id: "g1" }), identificadorExterno: null },
+        { ...g({ id: "g2", valor: 999 }), identificadorExterno: "a2" },
+      ],
+      proibidos,
+    );
     expect(r.size).toBe(0);
   });
 });

@@ -14,6 +14,7 @@ import {
   buscarLancamentoPorIdentificadorExterno,
 } from "@/lib/mcp/granatum.server";
 import {
+  chavePar,
   conciliar,
   detectarJaNoGranatum,
   similaridadeDescricao,
@@ -174,24 +175,36 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
     const asaasIds = new Set(asaas.map((a) => a.id));
     const granatumIds = new Set(granatum.map((g) => g.id));
 
-    const [{ data: paresExistentes }, { data: ignoradosRows }] = await Promise.all([
-      supabaseAdmin
-        .from("pares_conciliacao")
-        .select("asaas_id, granatum_id, tipo")
-        .eq("empresa_id", empresaId)
-        .or(
-          `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
-            [...granatumIds].join(",") || '""'
-          })`,
-        ),
-      asaasIds.size + granatumIds.size === 0
-        ? Promise.resolve({ data: [] as { provedor: string; lancamento_id: string }[] })
-        : supabaseAdmin
-            .from("lancamentos_ignorados")
-            .select("provedor, lancamento_id")
-            .eq("empresa_id", empresaId)
-            .in("lancamento_id", [...asaasIds, ...granatumIds]),
-    ]);
+    const [{ data: paresExistentes }, { data: ignoradosRows }, { data: recusadasRows }] =
+      await Promise.all([
+        supabaseAdmin
+          .from("pares_conciliacao")
+          .select("asaas_id, granatum_id, tipo")
+          .eq("empresa_id", empresaId)
+          .or(
+            `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
+              [...granatumIds].join(",") || '""'
+            })`,
+          ),
+        asaasIds.size + granatumIds.size === 0
+          ? Promise.resolve({ data: [] as { provedor: string; lancamento_id: string }[] })
+          : supabaseAdmin
+              .from("lancamentos_ignorados")
+              .select("provedor, lancamento_id")
+              .eq("empresa_id", empresaId)
+              .in("lancamento_id", [...asaasIds, ...granatumIds]),
+        asaasIds.size === 0
+          ? Promise.resolve({ data: [] as { asaas_id: string; granatum_id: string }[] })
+          : supabaseAdmin
+              .from("sugestoes_recusadas")
+              .select("asaas_id, granatum_id")
+              .eq("empresa_id", empresaId)
+              .in("asaas_id", [...asaasIds]),
+      ]);
+    // Ligações que o usuário interrompeu: nunca mais propostas.
+    const proibidos = new Set(
+      (recusadasRows ?? []).map((r) => chavePar(r.asaas_id, r.granatum_id)),
+    );
     const ignorados = new Set((ignoradosRows ?? []).map((r) => `${r.provedor}:${r.lancamento_id}`));
 
     const paresPorAsaas = new Map<string, { granatumId: string; tipo: string }>();
@@ -225,7 +238,12 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
       descricao: g.descricao,
     }));
 
-    const resultado = conciliar(candidatosAsaas, candidatosGranatum, data.toleranciaDias);
+    const resultado = conciliar(
+      candidatosAsaas,
+      candidatosGranatum,
+      data.toleranciaDias,
+      proibidos,
+    );
 
     // Baixa no Granatum só acontece por clique do usuário. Par automático
     // com lançamento ainda em aberto não é gravado sozinho: vira sugestão, e
@@ -277,6 +295,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
           descricao: g.descricao,
           identificadorExterno: g.identificadorExterno,
         })),
+      proibidos,
     );
 
     // Item do Asaas que mesmo assim ficou sem nada no Granatum: procura fatura
@@ -305,6 +324,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
           descricao: g.descricao,
           identificadorExterno: g.identificadorExterno,
         })),
+        proibidos,
       );
       for (const [asaasId, { granatumId }] of achados) {
         const g = abertos.find((x) => x.id === granatumId);
@@ -521,6 +541,41 @@ export const confirmarPar = createServerFn({ method: "POST" })
       },
       { onConflict: "empresa_id,asaas_id" },
     );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+const parSugeridoSchema = z.object({ asaasId: z.string(), granatumId: z.string() });
+
+/** Interrompe uma ligação sugerida: esse par nunca mais é proposto. */
+export const recusarSugestao = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => parSugeridoSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await supabaseAdmin.from("sugestoes_recusadas").upsert(
+      {
+        empresa_id: context.empresaId,
+        asaas_id: data.asaasId,
+        granatum_id: data.granatumId,
+        usuario_id: context.userId,
+      },
+      { onConflict: "empresa_id,asaas_id,granatum_id", ignoreDuplicates: true },
+    );
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Desfaz a interrupção: o par volta a poder ser sugerido. */
+export const restaurarSugestao = createServerFn({ method: "POST" })
+  .middleware([requireEmpresa])
+  .inputValidator((d: unknown) => parSugeridoSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await supabaseAdmin
+      .from("sugestoes_recusadas")
+      .delete()
+      .eq("empresa_id", context.empresaId)
+      .eq("asaas_id", data.asaasId)
+      .eq("granatum_id", data.granatumId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

@@ -56,7 +56,7 @@ cadastra empresas em `/admin` e o convite de acesso sai por e-mail (Resend).
 
 Todo dado de negócio (`integracoes_mcp`, `credenciais_fallback`, `conta_granatum`,
 `tool_mapping`, `pares_conciliacao`, `log_alteracoes_granatum`, `integracoes_ia`,
-`lancamentos_ignorados`)
+`lancamentos_ignorados`, `sugestoes_recusadas`)
 tem uma coluna `empresa_id not null`, com unique constraints e RLS escopados por
 empresa (`current_empresa_id()`, função `SECURITY DEFINER` que lê `profiles`,
 mesmo padrão do Multi MCPs). **Toda função em `asaas.server.ts`/`granatum.server.ts`/
@@ -189,8 +189,8 @@ Padrão `createServerFn` + `.middleware([requireEmpresa])` do TanStack Start (ou
 "Multi-empresa" acima pra como isso propaga `empresaId`.
 `conciliacao.functions.ts` é o maior: busca extrato+lançamentos, cruza com pares já
 gravados, roda a engine só no que sobra, persiste automáticos na hora, devolve
-sugestões sem persistir (ficam só na resposta — "rejeitar" no frontend é só estado
-local, não precisa de chamada ao servidor).
+sugestões sem persistir (ficam só na resposta). Interromper uma sugestão é
+persistido — ver "Conciliar todas as sugestões" abaixo.
 
 ### Conciliação manual (`FormConciliarManual.tsx`, `CardAsaas`/`CardGranatum` `modoVinculo`)
 
@@ -209,6 +209,29 @@ categoria, reaproveitando o cache de sugestões da tela). Um único botão
 `CardAsaas.tsx`. O mesmo padrão de registrar categoria/centro/descrição vale
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 (ver seção de IA abaixo) mesmo quando o usuário só confirma sem editar nada.
+
+### Conciliar todas as sugestões e interromper ligação (`sugestoes_recusadas`)
+
+Botão "Conciliar todas as sugestões (N)" na barra de filtros concilia em lote
+as sugestões visíveis (`conciliarTodas` em `conciliacao.tsx`, um por um, sem
+abortar no meio), cada uma exatamente como o "Confirmar" do card
+(`conciliarSugestao`: aplica descrição/categoria/centro do card se mudou, dá
+baixa se em aberto, grava o par). Por isso os campos do `CardGranatum` também
+são controlados pela página (`edicoesGranatum` + `camposGranatum()`, que
+pré-preenche com a sugestão quando o lançamento está sem categoria), igual ao
+`CardAsaas`.
+
+A linha tracejada entre os cards de uma sugestão é clicável (no celular, o
+botão "Interromper" do card): **interrompe** a ligação — linha vermelha com
+"X", o par sai do lote e o botão vira "Conciliar selecionadas (N)". Clicar de
+novo restaura. A interrupção é **permanente** (pedido explícito): grava na
+hora em `sugestoes_recusadas` (`unique(empresa_id, asaas_id, granatum_id)`,
+`recusarSugestao`/`restaurarSugestao`), e `buscarLancamentos` passa esses
+pares como `proibidos` pra `conciliar` e `detectarJaNoGranatum` — aquele par
+nunca mais é proposto (nem como "já existe no Granatum" ou fora do período),
+mas cada lado continua livre pra outro par. Na tela, o par interrompido fica
+lado a lado (`interrompidas`, por id do Asaas) até a próxima busca. Substitui
+o antigo "Rejeitar", que era só estado local.
 
 ### Ignorar lançamento (`lancamentos_ignorados`, `DialogIgnorar.tsx`)
 

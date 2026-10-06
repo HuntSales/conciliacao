@@ -326,6 +326,13 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     resto, ~6-8 s); o William decidiu manter 180 por enquanto. Com o
     histórico funcionando, menos itens devem chegar à IA.
 
+27. **Conciliar todas as sugestões (2026-10-05)**: pedido do William — não
+    confirmar sugestão uma a uma. Botão "Conciliar todas as sugestões";
+    clicar na linha entre os cards interrompe a ligação errada (o botão vira
+    "Conciliar selecionadas"). Decisões dele: interrupção permanente (tabela
+    `sugestoes_recusadas`, migration 0007, aplicada com `db push` no mesmo
+    dia) e clicar de novo restaura. O "Rejeitar" local deixou de existir.
+
 ## Estado atual e pendências conhecidas
 
 - Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi

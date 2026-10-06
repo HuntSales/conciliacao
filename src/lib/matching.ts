@@ -30,6 +30,11 @@ export type ResultadoConciliacao = {
 
 const CENTAVOS = 100;
 
+/** Chave de um par Asaas × Granatum, pra conjuntos de pares proibidos. */
+export function chavePar(asaasId: string, granatumId: string): string {
+  return `${asaasId}|${granatumId}`;
+}
+
 function valoresIguais(a: number, b: number): boolean {
   return Math.round(a * CENTAVOS) === Math.round(b * CENTAVOS);
 }
@@ -74,11 +79,15 @@ export function similaridadeDescricao(a: string, b: string): number {
  * A junção é sempre 1:1: um item nunca aparece em mais de um par, mesmo entre
  * pares do tipo "sugestao" (a sugestão já reserva os dois lados para não
  * competir com outras sugestões enquanto aguarda confirmação).
+ *
+ * `proibidos` (chaves de `chavePar`): ligações que o usuário interrompeu —
+ * esse par nunca é proposto, mas cada lado continua livre pra outro par.
  */
 export function conciliar(
   asaas: CandidatoAsaas[],
   granatum: CandidatoGranatum[],
   toleranciaDias = 0,
+  proibidos: ReadonlySet<string> = new Set(),
 ): ResultadoConciliacao {
   const asaasDisponiveis = new Map(asaas.map((a) => [a.id, a]));
   const granatumDisponiveis = new Map(granatum.map((g) => [g.id, g]));
@@ -97,7 +106,9 @@ export function conciliar(
 
       const candidatos = [...asaasDisponiveis.values()].filter(
         (a) =>
-          valoresIguais(a.valor, g.valor) && Math.abs(diferencaDias(a.data, g.data)) === distancia,
+          valoresIguais(a.valor, g.valor) &&
+          Math.abs(diferencaDias(a.data, g.data)) === distancia &&
+          !proibidos.has(chavePar(a.id, g.id)),
       );
 
       if (candidatos.length === 0) continue;
@@ -154,12 +165,18 @@ export type JaNoGranatum = {
 export function detectarJaNoGranatum(
   asaas: CandidatoAsaas[],
   granatum: (CandidatoGranatum & { identificadorExterno: string | null })[],
+  proibidos: ReadonlySet<string> = new Set(),
 ): Map<string, JaNoGranatum> {
   const resultado = new Map<string, JaNoGranatum>();
   const usados = new Set<string>();
 
   for (const a of asaas) {
-    const g = granatum.find((x) => x.identificadorExterno === a.id && !usados.has(x.id));
+    const g = granatum.find(
+      (x) =>
+        x.identificadorExterno === a.id &&
+        !usados.has(x.id) &&
+        !proibidos.has(chavePar(a.id, x.id)),
+    );
     if (!g) continue;
     resultado.set(a.id, { granatumId: g.id, motivo: "identificador" });
     usados.add(g.id);
@@ -170,7 +187,12 @@ export function detectarJaNoGranatum(
     .sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : x.id.localeCompare(y.id)));
   for (const a of restantes) {
     const melhor = granatum
-      .filter((g) => !usados.has(g.id) && valoresIguais(a.valor, g.valor))
+      .filter(
+        (g) =>
+          !usados.has(g.id) &&
+          valoresIguais(a.valor, g.valor) &&
+          !proibidos.has(chavePar(a.id, g.id)),
+      )
       .map((g) => ({
         g,
         dias: Math.abs(diferencaDias(a.data, g.data)),
