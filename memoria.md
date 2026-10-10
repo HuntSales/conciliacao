@@ -12,7 +12,8 @@ edição/criação de lançamentos no Granatum sem sair da tela, e histórico de
 Dono/plataforma: William. **Multi-empresa desde 2026-09-18**: William (via
 `/admin`) cadastra outras empresas (CNPJ, razão social, e-mail de acesso), cada
 uma com suas próprias integrações/conciliações, isoladas por RLS. A Hunt Sales
-é a primeira empresa (o ambiente que já existia antes da mudança).
+é a primeira empresa (o ambiente que já existia antes da mudança); a **Corp
+Connect** foi cadastrada em 2026-10-06, com integrações e conta próprias.
 
 ## Histórico
 
@@ -26,9 +27,12 @@ trocada a pedido dele.
 Granatum (painel do Multi MCPs), a lista de contas veio diferente da que
 aparecia via conexão MCP direta desta mesma sessão do Claude Code — **são duas
 empresas/contas Granatum distintas**, apesar de ambas terem uma conta chamada
-"ASAAS IP". A conta certa para este projeto é `id 133081` (via MCP público). A
-`id 123499` (vista numa exploração inicial via MCP direto da sessão) **não
-pertence a este tenant** — não confundir se aparecer em algum log antigo.
+"ASAAS IP". **Atualizado em 2026-10-10 (conferido no banco)**: as duas são do
+próprio app, de empresas diferentes — `123499` é da **Hunt Sales** (configurada
+assim desde 2026-09-24; é o mesmo Granatum que o MCP "Granatum Hunt" da sessão
+do Claude Code enxerga, então dá pra conferir dados reais da Hunt Sales direto
+por ele) e `133081` é da **Corp Connect** (cadastrada em 2026-10-06). A nota
+antiga ("133081 é a certa, 123499 não pertence a este tenant") ficou errada.
 
 Resultado do teste real (período 2026-09-01 a 2026-09-18): 17 lançamentos no
 extrato Asaas, 13 lançamentos no Granatum, **13 pares batidos automaticamente**
@@ -85,8 +89,10 @@ ilegíveis pra sempre.
   `{slug}/{chave}` no path) — não precisa de token/header adicional.
 - **Granatum**: idem, servidor MCP público do Multi MCPs
   (`mcp.smartapps.ia.br/api/public/mcp/granatum/...`).
-- **Conta configurada**: "ASAAS IP", `conta_id_granatum = 133081` (ver nota no
-  Histórico acima sobre não confundir com outro tenant).
+- **Contas configuradas** (`conta_granatum`, uma por empresa): Hunt Sales →
+  "ASAAS IP" `123499`; Corp Connect → "ASAAS IP" `133081`. Os MCPs "Asaas Hunt"
+  e "Granatum Hunt" da sessão do Claude Code são da Hunt Sales — úteis pra
+  investigar caso real só lendo (ex.: caso da Gless, item 25).
 - `tool_mapping` preenchido automaticamente ao clicar "Testar conexão" nas
   Integrações — nomes reais confirmados: `recuperar_extrato` (Asaas),
   `listar_lancamentos`/`listar_categorias`/`listar_centros_custo`/`listar_contas`/
@@ -97,10 +103,10 @@ ilegíveis pra sempre.
 1. **Banco em nuvem, não local**: plano inicial era SQLite local; trocado a
    pedido explícito do William antes de codar. Ver `CLAUDE.md`.
 2. **Duas contas Granatum "ASAAS IP" diferentes**: descoberto testando com dados
-   reais — a URL MCP pública do Multi MCPs aponta pra um tenant diferente do
-   acesso MCP direto que a sessão do Claude Code já tinha. Sempre confirmar o
-   `conta_id` batendo o saldo da conta com o saldo do extrato Asaas antes de
-   assumir que é a conta certa.
+   reais. Hoje cada uma é de uma empresa do app (ver Histórico: `123499` Hunt
+   Sales, `133081` Corp Connect). Sempre confirmar o `conta_id` da empresa em
+   `conta_granatum` (e bater o saldo com o extrato Asaas) antes de assumir qual
+   é a conta certa.
 3. **Porta do container em servidor multi-app**: o `deploy.sh` copiado do Multi
    MCPs usava porta `3000` (igual ao servidor de referência) — colidia com o
    container `multi-mcps` já rodando nela. Corrigido pra `3004` (primeira porta
@@ -333,11 +339,37 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     `sugestoes_recusadas`, migration 0007, aplicada com `db push` no mesmo
     dia) e clicar de novo restaura. O "Rejeitar" local deixou de existir.
 
+## Como o William prefere trabalhar
+
+- Mudança grande ou ambígua: apresentar o plano/opções e **perguntar antes de
+  implementar** (ele pede isso explicitamente e responde rápido). Na dúvida
+  sobre o que ele quis dizer, perguntar.
+- Commit, push e deploy **só depois do ok dele**, a cada vez — mostrar o
+  resultado de typecheck/lint/testes antes.
+- Manter `CLAUDE.md` (arquitetura) e este arquivo (contexto/decisões)
+  atualizados depois de mudanças relevantes.
+- Prioridade dele na conciliação: **nunca duplicar lançamento no Granatum**.
+  Baixa no Granatum só por clique dele. O lado do Granatum na tela é "só pra
+  mostrar" (sem seleção).
+
 ## Estado atual e pendências conhecidas
 
-- Fluxo de "sugestão" (ambiguidade sem desempate claro na engine) ainda não foi
-  exercitado manualmente na tela — os dados reais testados não geraram nenhuma
-  ambiguidade. Vale testar o botão Confirmar/Rejeitar antes de confiar 100% nele.
+- **Validar na tela (entregue em 2026-10-05, só testado no código/dados)**:
+  aviso "Já existe no Granatum" + "Ligar a ele" (item 24); sugestão "Fora do
+  período" — o caso da Gless (R$ 1.697,00, venceu 04/10, pago 05/10) foi
+  confirmado só na listagem com dados reais, não na tela (item 25);
+  "Conciliar todas as sugestões" + interromper/restaurar pela linha (item 27).
+- Risco conhecido do "fora do período": casa só por valor exato; cliente com
+  mensalidade igual e mais de uma fatura em aberto na janela pode receber a
+  sugestão da fatura errada (atenuado: vencimento mais próximo + depende do
+  Confirmar). Juros/multa não casam (decisão dele) — ficam pro "Ligar".
+- Busca ficou mais lenta depois da correção da paginação (item 26): ~3 s o
+  período "hoje", ~15 s a janela ampliada (em paralelo), sugestões de
+  categoria ~20 s por causa dos 180 dias. Se incomodar, a alavanca proposta
+  é reduzir `DIAS_HISTORICO_GRANATUM` pra 60.
+- Outras listagens via MCP (categorias, centros, contas, extrato do Asaas em
+  páginas de 100) não passaram pela mesma checagem do corte de 100 mil
+  caracteres — hoje cabem, mas se alguma "sumir" em silêncio, começar por aí.
 - Fallback REST direto (Asaas e Granatum) implementado mas nunca exercitado de
   verdade — os dois MCPs cobriram 100% das funções necessárias no teste real.
 - Hardening de segurança do servidor: deliberadamente adiado, mesma decisão do

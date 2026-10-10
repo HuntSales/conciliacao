@@ -29,8 +29,20 @@ node .output/server/index.mjs               # roda o build de produção direto
 ```
 
 Sem `vitest.config.*` — reaproveita `vite.config.ts`, descobre `*.test.ts`
-automaticamente. Só `src/lib/matching.ts` e `src/lib/extrair-valor.ts` têm
-testes (são as lógicas puras, sem I/O, que vale testar assim).
+automaticamente. Só `src/lib/matching.ts`, `src/lib/extrair-valor.ts` e
+`src/lib/parcelas.ts` têm testes (são as lógicas puras, sem I/O, que vale
+testar assim) — regra nova de casamento/duplicidade entra em `matching.ts`,
+com teste.
+
+**Ambiente local (iCloud)**: a pasta do projeto fica no Desktop sincronizado
+pelo iCloud, que tira arquivos do disco (`find node_modules -flags +dataless
+| wc -l` chegou a ~25 mil). `tsc`/`vitest`/`eslint` então ficam minutos
+"parados" sem usar CPU, baixando arquivo por arquivo — não é travamento do
+código; rodar em segundo plano e esperar (ou marcar a pasta como "Manter
+baixado"). **Reproduzir com dados reais**: um `*.test.ts` temporário que lê o
+`.env` local, faz `await import()` dos módulos `*.server.ts` e chama as
+funções direto (ex.: `listarLancamentosGranatum`) — foi assim que se achou o
+corte de 100 mil caracteres do MCP. Apagar o arquivo depois; nunca commitar.
 
 ## Stack e origem
 
@@ -182,6 +194,12 @@ cru) + data igual = automático; tolerância de dias configurável; ambiguidade
 descrição (Jaccard sobre tokens) — só vira "sugestão" (não liga sozinho) quando o
 desempate não é claro. 1:1 sempre garantido, inclusive entre sugestões.
 
+Também em `matching.ts`: `detectarJaNoGranatum` (identificador externo, senão
+valor exato em qualquer data, 1:1, data mais próxima) — usada pra marcar
+`jaNoGranatum` e pra achar fatura em aberto fora do período (ver "Dedupe de
+criação"). `conciliar` e `detectarJaNoGranatum` recebem `proibidos`
+(`chavePar(asaasId, granatumId)`), as ligações que o usuário interrompeu.
+
 ### Server functions (`src/lib/*.functions.ts`)
 
 Padrão `createServerFn` + `.middleware([requireEmpresa])` do TanStack Start (ou
@@ -259,7 +277,8 @@ Asaas/Granatum.
 Checkbox em cada card do Asaas sem par (independente do `modoVinculo` — some
 enquanto uma ligação está em andamento, pra não confundir os dois modos ao
 mesmo tempo) alimenta `selecionadosLote` em `conciliacao.tsx`; o botão
-"Selecionar todos os pendentes" marca todos os do filtro atual. Com 1+
+"Selecionar todos os pendentes" marca os do filtro atual que ainda podem ser
+criados (item com `jaNoGranatum` nunca tem checkbox nem entra no lote). Com 1+
 selecionado(s), aparece uma faixa fixa no topo com duas opções:
 
 - **"Criar todos"** (ou "Criar N selecionados" se não forem todos):
@@ -395,6 +414,13 @@ em `log_alteracoes_granatum` (`antes: null`, `depois.criadoEm: "lancamentos"`).
   descarta argumento que a tool não declara.
 
 ## Deploy
+
+Fluxo combinado com o usuário: implementar → `tsc`/`eslint`/`vitest` → mostrar
+o resultado e **perguntar** antes de commit, push e deploy (ele aprova
+explicitamente a cada vez). Mudança grande ou ambígua: apresentar o plano e
+perguntar antes de implementar. Migration nova: `supabase db push` + gen types
+(conferir que o `types.ts` não foi zerado e rodar `prettier` nele) antes do
+deploy. `gh auth switch -u HuntSales` antes do push.
 
 Ver `memoria.md` para infraestrutura (servidor, domínio, repositório, portas).
 `Dockerfile`/`deploy.sh` seguem o mesmo padrão do Multi MCPs — **nunca
