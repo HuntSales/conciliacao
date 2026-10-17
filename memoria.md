@@ -338,6 +338,14 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     "Conciliar selecionadas"). Decisões dele: interrupção permanente (tabela
     `sugestoes_recusadas`, migration 0007, aplicada com `db push` no mesmo
     dia) e clicar de novo restaura. O "Rejeitar" local deixou de existir.
+28. **Ajuste ao saldo + "Lançar e conciliar" (2026-10-17)**: o William
+    conciliava assim: buscar "hoje", conferir se o saldo projetado do
+    Granatum batia com o do Asaas, senão voltar um dia, e assim até bater;
+    depois criar os que faltavam, buscar de novo e conciliar. Agora a tela,
+    ao abrir, acha sozinha o período (até **15 dias**, decisão dele — concilia
+    todo dia), deixa marcado tudo que precisa ser criado, e um botão único
+    "Lançar e conciliar" cria e concilia as sugestões, **dando baixa** nas em
+    aberto (decisão dele: esse clique vale como autorização da baixa).
 
 ## Como o William prefere trabalhar
 
@@ -367,6 +375,8 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
   período "hoje", ~15 s a janela ampliada (em paralelo), sugestões de
   categoria ~20 s por causa dos 180 dias. Se incomodar, a alavanca proposta
   é reduzir `DIAS_HISTORICO_GRANATUM` pra 60.
+- **Validar na tela (entregue em 2026-10-17, só testes/typecheck)**: ajuste
+  ao saldo ao abrir a conciliação e o "Lançar e conciliar" (item 28).
 - Outras listagens via MCP (categorias, centros, contas, extrato do Asaas em
   páginas de 100) não passaram pela mesma checagem do corte de 100 mil
   caracteres — hoje cabem, mas se alguma "sumir" em silêncio, começar por aí.

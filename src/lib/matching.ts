@@ -2,6 +2,8 @@
 // normalizados (despesa = valor negativo, receita = valor positivo, nos dois
 // lados) e devolve os pares encontrados.
 
+import { somarDias } from "./format";
+
 export type CandidatoAsaas = {
   id: string;
   data: string; // AAAA-MM-DD
@@ -205,4 +207,45 @@ export function detectarJaNoGranatum(
   }
 
   return resultado;
+}
+
+export type ContribuicaoSaldo = { data: string; valor: number };
+
+export type InicioPorSaldo = {
+  dataInicio: string;
+  /** Algum dia da janela fecha a diferença ao centavo. */
+  bateu: boolean;
+  /** Quanto ainda falta (diferença − soma da janela inteira) quando não bate. */
+  diferencaRestante: number;
+};
+
+/**
+ * Acha o período que faz o saldo do Granatum bater com o do Asaas — o mesmo
+ * que o usuário fazia à mão: buscar só hoje, depois desde ontem, e assim por
+ * diante, até o saldo projetado bater.
+ *
+ * `itens` são os itens do Asaas que ainda mexem no saldo do Granatum
+ * (serão criados ou baixados); `diferenca` = saldo Asaas − saldo Granatum.
+ * Devolve o início mais recente (de `dataFim` pra trás, no máximo `dias`
+ * dias contando `dataFim`) cuja soma dos itens até `dataFim` fecha a
+ * diferença, em centavos. Sem nenhum que feche, devolve a janela inteira.
+ */
+export function acharInicioQueBateSaldo(
+  itens: ContribuicaoSaldo[],
+  diferenca: number,
+  dataFim: string,
+  dias: number,
+): InicioPorSaldo {
+  const alvo = Math.round(diferenca * 100);
+  const dentro = itens.filter((i) => i.data <= dataFim);
+  let soma = 0;
+  let inicio = dataFim;
+  for (let k = 0; k < dias; k++) {
+    inicio = somarDias(dataFim, -k);
+    soma = dentro
+      .filter((i) => i.data >= inicio)
+      .reduce((s, i) => s + Math.round(i.valor * 100), 0);
+    if (soma === alvo) return { dataInicio: inicio, bateu: true, diferencaRestante: 0 };
+  }
+  return { dataInicio: inicio, bateu: false, diferencaRestante: (alvo - soma) / 100 };
 }

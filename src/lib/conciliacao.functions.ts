@@ -14,6 +14,7 @@ import {
   buscarLancamentoPorIdentificadorExterno,
 } from "@/lib/mcp/granatum.server";
 import {
+  acharInicioQueBateSaldo,
   chavePar,
   conciliar,
   detectarJaNoGranatum,
@@ -80,7 +81,16 @@ const periodoSchema = z.object({
   dataInicio: z.string(),
   dataFim: z.string(),
   toleranciaDias: z.number().int().min(0).max(3).default(0),
+  /**
+   * Ignora `dataInicio` e acha sozinho o período (até `DIAS_AJUSTE_SALDO`
+   * dias terminando em `dataFim`) que faz o saldo do Granatum bater com o
+   * do Asaas depois de criar e conciliar o pendente.
+   */
+  ajustarAoSaldo: z.boolean().default(false),
 });
+
+// Concilia todo dia: 15 dias pra trás bastam pra achar onde o saldo bate.
+const DIAS_AJUSTE_SALDO = 15;
 
 export type ItemAsaas = LancamentoAsaas & {
   parGranatumId: string | null;
@@ -151,9 +161,14 @@ async function abertosForaDoPeriodo(
 export const buscarLancamentos = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
   .inputValidator((d: unknown) => periodoSchema.parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data: entrada, context }) => {
     const empresaId = context.empresaId;
     const contaId = await contaConfigurada(empresaId);
+    // No ajuste ao saldo busca a janela inteira de uma vez e só no fim corta
+    // no dia em que o saldo bate — evita uma busca por dia testado.
+    const data = entrada.ajustarAoSaldo
+      ? { ...entrada, dataInicio: somarDias(entrada.dataFim, -(DIAS_AJUSTE_SALDO - 1)) }
+      : entrada;
 
     // A janela ampliada (faturas em aberto fora do período) sai junto com a
     // busca principal, pra não somar o tempo dela — só é usada se sobrar item
@@ -335,7 +350,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
       }
     }
 
-    const itensAsaas: ItemAsaas[] = asaas.map((a) => {
+    let itensAsaas: ItemAsaas[] = asaas.map((a) => {
       const par = paresPorAsaas.get(a.id);
       return {
         ...a,
@@ -345,7 +360,7 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         jaNoGranatum: jaNoGranatum.get(a.id) ?? null,
       };
     });
-    const itensGranatum: ItemGranatum[] = granatum.map((g) => {
+    let itensGranatum: ItemGranatum[] = granatum.map((g) => {
       const par = paresPorGranatum.get(g.id);
       return {
         ...g,
@@ -365,14 +380,55 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         foraDoPeriodo: true,
       });
     }
+
+    // Item do Asaas que ainda mexe no saldo do Granatum: sem nenhum
+    // lançamento lá (será criado) ou ligado a um em aberto (será baixado).
+    // Par com lançamento já baixado já está no saldo atual; ignorado e o que
+    // já parece existir no Granatum não entram.
+    const mexeNoSaldo = (a: ItemAsaas) => {
+      if (a.ignorado) return false;
+      if (!a.tipoPar) return !a.jaNoGranatum;
+      const g = itensGranatum.find((x) => x.id === a.parGranatumId);
+      return Boolean(g && !g.pago);
+    };
+
+    let periodo = { dataInicio: data.dataInicio, dataFim: data.dataFim };
+    let ajuste: { bateu: boolean; diferencaRestante: number } | null = null;
+    if (entrada.ajustarAoSaldo && saldoAsaas !== null && saldoGranatum !== null) {
+      const achado = acharInicioQueBateSaldo(
+        itensAsaas.filter(mexeNoSaldo).map((a) => ({ data: a.data, valor: a.valor })),
+        saldoAsaas - saldoGranatum,
+        data.dataFim,
+        DIAS_AJUSTE_SALDO,
+      );
+      periodo = { dataInicio: achado.dataInicio, dataFim: data.dataFim };
+      ajuste = { bateu: achado.bateu, diferencaRestante: achado.diferencaRestante };
+      // Corta a janela no dia achado. Sugestão cujo lado do Asaas ficou de
+      // fora volta a ser só um lançamento pendente do Granatum.
+      itensAsaas = itensAsaas.filter((a) => a.data >= periodo.dataInicio);
+      const asaasMantidos = new Set(itensAsaas.map((a) => a.id));
+      itensGranatum = itensGranatum
+        .filter((g) =>
+          g.foraDoPeriodo
+            ? Boolean(g.parAsaasId && asaasMantidos.has(g.parAsaasId))
+            : g.data >= periodo.dataInicio,
+        )
+        .map((g) =>
+          g.tipoPar === "sugestao" && g.parAsaasId && !asaasMantidos.has(g.parAsaasId)
+            ? { ...g, parAsaasId: null, tipoPar: null }
+            : g,
+        );
+    }
     const granatumDoPeriodo = itensGranatum.filter((g) => !g.foraDoPeriodo);
 
     return {
       asaas: itensAsaas,
       granatum: itensGranatum,
+      periodo,
+      ajuste,
       resumo: {
-        totalAsaas: asaas.reduce((s, a) => s + a.valor, 0),
-        totalGranatum: granatum.reduce((s, g) => s + g.valor, 0),
+        totalAsaas: itensAsaas.reduce((s, a) => s + a.valor, 0),
+        totalGranatum: granatumDoPeriodo.reduce((s, g) => s + g.valor, 0),
         conciliadosAsaas: itensAsaas.filter((a) => a.tipoPar && a.tipoPar !== "sugestao").length,
         conciliadosGranatum: granatumDoPeriodo.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
           .length,
@@ -384,23 +440,11 @@ export const buscarLancamentos = createServerFn({ method: "POST" })
         ).length,
         saldoAsaas,
         saldoGranatum,
-        // Projeta o saldo do Granatum depois de conciliar tudo: entra o valor
-        // dos itens do Asaas ainda sem nenhum lançamento no Granatum (serão
-        // criados) e dos ligados a um lançamento ainda em aberto (serão
-        // baixados). Par com lançamento já baixado já está no saldo atual;
-        // ignorado e o que já parece existir no Granatum não entram.
+        // Saldo do Granatum depois de criar e conciliar tudo que está pendente.
         saldoGranatumProjetado:
           saldoGranatum === null
             ? null
-            : saldoGranatum +
-              itensAsaas
-                .filter((a) => {
-                  if (a.ignorado) return false;
-                  if (!a.tipoPar) return !a.jaNoGranatum;
-                  const g = itensGranatum.find((x) => x.id === a.parGranatumId);
-                  return Boolean(g && !g.pago);
-                })
-                .reduce((s, a) => s + a.valor, 0),
+            : saldoGranatum + itensAsaas.filter(mexeNoSaldo).reduce((s, a) => s + a.valor, 0),
       },
     };
   });

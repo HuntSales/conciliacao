@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chavePar, conciliar, detectarJaNoGranatum, similaridadeDescricao } from "./matching";
+import {
+  acharInicioQueBateSaldo,
+  chavePar,
+  conciliar,
+  detectarJaNoGranatum,
+  similaridadeDescricao,
+} from "./matching";
 import type { CandidatoAsaas, CandidatoGranatum } from "./matching";
 
 function a(over: Partial<CandidatoAsaas> & { id: string }): CandidatoAsaas {
@@ -170,5 +176,60 @@ describe("pares proibidos (ligação interrompida)", () => {
       proibidos,
     );
     expect(r.size).toBe(0);
+  });
+});
+
+describe("acharInicioQueBateSaldo", () => {
+  const fim = "2026-10-17";
+
+  it("fica só em hoje quando a diferença já é zero e não há nada pendente", () => {
+    expect(acharInicioQueBateSaldo([], 0, fim, 15)).toEqual({
+      dataInicio: fim,
+      bateu: true,
+      diferencaRestante: 0,
+    });
+  });
+
+  it("volta dia a dia até a soma dos pendentes fechar a diferença", () => {
+    const itens = [
+      { data: "2026-10-17", valor: 100 },
+      { data: "2026-10-16", valor: -30.1 },
+      { data: "2026-10-14", valor: 50.25 },
+    ];
+    expect(acharInicioQueBateSaldo(itens, 120.15, fim, 15)).toEqual({
+      dataInicio: "2026-10-14",
+      bateu: true,
+      diferencaRestante: 0,
+    });
+    expect(acharInicioQueBateSaldo(itens, 69.9, fim, 15).dataInicio).toBe("2026-10-16");
+  });
+
+  it("prefere o início mais recente quando mais de um fecha", () => {
+    const itens = [
+      { data: "2026-10-17", valor: 10 },
+      { data: "2026-10-15", valor: 5 },
+      { data: "2026-10-14", valor: -5 },
+    ];
+    expect(acharInicioQueBateSaldo(itens, 10, fim, 15).dataInicio).toBe("2026-10-17");
+  });
+
+  it("compara em centavos, sem erro de ponto flutuante", () => {
+    const itens = [
+      { data: "2026-10-17", valor: 0.1 },
+      { data: "2026-10-17", valor: 0.2 },
+    ];
+    expect(acharInicioQueBateSaldo(itens, 0.3, fim, 15).bateu).toBe(true);
+  });
+
+  it("sem nenhum dia que feche, devolve a janela inteira e quanto falta", () => {
+    const itens = [
+      { data: "2026-10-17", valor: 100 },
+      { data: "2026-09-01", valor: 999 },
+    ];
+    expect(acharInicioQueBateSaldo(itens, 150, fim, 15)).toEqual({
+      dataInicio: "2026-10-03",
+      bateu: false,
+      diferencaRestante: 50,
+    });
   });
 });

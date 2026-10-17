@@ -1,7 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCheck, CheckSquare, EyeOff, Layers, Plus, RefreshCw, Unlink, X } from "lucide-react";
+import {
+  CheckCheck,
+  CheckSquare,
+  EyeOff,
+  Layers,
+  Plus,
+  RefreshCw,
+  Scale,
+  Unlink,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
@@ -29,7 +39,7 @@ import {
   type ItemGranatum,
   type SugestaoParaLancamento,
 } from "@/lib/conciliacao.functions";
-import { hojeIso } from "@/lib/format";
+import { formatarDataCurta, formatarMoeda, hojeIso } from "@/lib/format";
 import { montarNav } from "@/components/corp/nav-padrao";
 import { useSuperAdmin } from "@/lib/use-super-admin";
 
@@ -97,13 +107,43 @@ function ConciliacaoPage() {
     staleTime: Infinity,
   });
 
+  // Resultado do último "Ajustar ao saldo" — fica na tela até uma busca
+  // manual, mesmo depois das buscas que recarregam após criar/conciliar.
+  const [ajuste, setAjuste] = useState<
+    | { bateu: true; dataInicio: string; dataFim: string }
+    | { bateu: false; diferencaRestante: number | null }
+    | null
+  >(null);
+
+  // `ajustarAoSaldo`: acha sozinho o período (até 15 dias até hoje) em que o
+  // saldo do Granatum bate com o do Asaas depois de criar e conciliar o
+  // pendente, e já deixa marcado tudo que precisa ser criado.
   const busca = useMutation({
-    mutationFn: () => buscarLancamentos({ data: periodo }),
+    mutationFn: (ajustarAoSaldo: boolean) =>
+      buscarLancamentos({
+        data: ajustarAoSaldo
+          ? { ...periodo, dataFim: hojeIso(), ajustarAoSaldo }
+          : { ...periodo, ajustarAoSaldo },
+      }),
+    onSuccess: (r, ajustarAoSaldo) => {
+      if (!ajustarAoSaldo) return;
+      setPeriodo((p) => ({ ...p, ...r.periodo }));
+      setAjuste(
+        r.ajuste?.bateu
+          ? { bateu: true, ...r.periodo }
+          : { bateu: false, diferencaRestante: r.ajuste?.diferencaRestante ?? null },
+      );
+      setSelecionadosLote(
+        new Set(
+          r.asaas.filter((a) => !a.tipoPar && !a.ignorado && !a.jaNoGranatum).map((a) => a.id),
+        ),
+      );
+    },
     onError: (erro) =>
       toast.error(erro instanceof Error ? erro.message : "Falha ao buscar lançamentos"),
   });
 
-  const invalidarBusca = () => busca.mutate();
+  const invalidarBusca = () => busca.mutate(false);
 
   // Sugestões de categoria/centro de todos os pendentes, pedidas em lote logo
   // depois de cada busca. Ficam em cache por item durante a sessão: uma nova
@@ -182,7 +222,7 @@ function ConciliacaoPage() {
       );
   }, [busca.data]);
 
-  const buscarNovamente = () => {
+  const buscarNovamente = (ajustarAoSaldo: boolean) => {
     // Uma nova busca não deve carregar seleção/vínculo pendente da busca
     // anterior — senão os cards somem os botões normais achando que ainda tem
     // uma ligação em andamento, e não fica óbvio por quê (o aviso fica lá em
@@ -190,8 +230,17 @@ function ConciliacaoPage() {
     setOrigemVinculo(null);
     setSelecionadosLote(new Set());
     setInterrompidas(new Set());
-    busca.mutate();
+    if (!ajustarAoSaldo) setAjuste(null);
+    busca.mutate(ajustarAoSaldo);
   };
+
+  // Ao abrir a tela já ajusta o período ao saldo (concilia todo dia).
+  const jaAjustouAoAbrir = useRef(false);
+  useEffect(() => {
+    if (jaAjustouAoAbrir.current) return;
+    jaAjustouAoAbrir.current = true;
+    buscarNovamente(true);
+  });
 
   const conciliarSugestao = async ({
     asaas,
@@ -442,23 +491,26 @@ function ConciliacaoPage() {
   );
   const sugestoesParaConciliar = sugestoesVisiveis.filter((p) => !interrompidas.has(p.asaas.id));
 
+  // Cada item com a descrição/categoria/centro que está no próprio card.
+  const criarComCamposDosCards = (itens: ItemAsaas[]) =>
+    criarCadaUmAPartirDoAsaas({
+      data: {
+        itens: itens.map((i) => {
+          const c = camposAsaas(i);
+          return {
+            asaasId: i.id,
+            data: i.data,
+            descricao: c.descricao,
+            valor: i.valor,
+            categoriaId: c.categoriaId,
+            centroCustoId: c.centroCustoId || null,
+          };
+        }),
+      },
+    });
+
   const criarTodos = useMutation({
-    mutationFn: async (itens: ItemAsaas[]) =>
-      criarCadaUmAPartirDoAsaas({
-        data: {
-          itens: itens.map((i) => {
-            const c = camposAsaas(i);
-            return {
-              asaasId: i.id,
-              data: i.data,
-              descricao: c.descricao,
-              valor: i.valor,
-              categoriaId: c.categoriaId,
-              centroCustoId: c.centroCustoId || null,
-            };
-          }),
-        },
-      }),
+    mutationFn: criarComCamposDosCards,
     onSuccess: (resultados) => {
       const falhas = resultados.filter((r) => !r.ok);
       if (falhas.length === 0) {
@@ -476,21 +528,94 @@ function ConciliacaoPage() {
       toast.error(erro instanceof Error ? erro.message : "Falha ao criar lançamentos"),
   });
 
-  const iniciarCriarTodos = () => {
-    const semCategoria = itensLote.filter((i) => !camposAsaas(i).categoriaId);
+  // Recusa antes de chamar o servidor: categoria e descrição são obrigatórias.
+  const prontosParaCriar = (itens: ItemAsaas[]) => {
+    const semCategoria = itens.filter((i) => !camposAsaas(i).categoriaId);
     if (semCategoria.length > 0) {
       toast.error(
         `${semCategoria.length} lançamento(s) selecionado(s) sem categoria — preencha ou desmarque antes de criar.`,
       );
-      return;
+      return false;
     }
-    const semDescricao = itensLote.filter((i) => !camposAsaas(i).descricao.trim());
+    const semDescricao = itens.filter((i) => !camposAsaas(i).descricao.trim());
     if (semDescricao.length > 0) {
       toast.error(`${semDescricao.length} lançamento(s) selecionado(s) sem descrição.`);
-      return;
+      return false;
     }
-    criarTodos.mutate(itensLote);
+    return true;
   };
+
+  const iniciarCriarTodos = () => {
+    if (prontosParaCriar(itensLote)) criarTodos.mutate(itensLote);
+  };
+
+  // Todas as sugestões do período (não só as do filtro visível), menos as
+  // interrompidas — o que o botão único concilia.
+  const sugestoesDoPeriodo = (dados?.asaas ?? []).flatMap((a) => {
+    if (a.tipoPar !== "sugestao" || interrompidas.has(a.id)) return [];
+    const g = dados?.granatum.find((x) => x.id === a.parGranatumId);
+    return g ? [{ asaas: a, granatum: g }] : [];
+  });
+
+  // Botão único: concilia as sugestões (dando baixa no Granatum das que estão
+  // em aberto, com a data do Asaas) e cria os selecionados, cada um com os
+  // campos do próprio card. Um por um, sem abortar no meio.
+  const lancarEConciliar = useMutation({
+    mutationFn: async ({
+      criar,
+      pares,
+    }: {
+      criar: ItemAsaas[];
+      pares: { asaas: ItemAsaas; granatum: ItemGranatum }[];
+    }) => {
+      const falhas: string[] = [];
+      for (const par of pares) {
+        try {
+          await conciliarSugestao({ ...par, campos: camposGranatum(par.granatum) });
+        } catch (erro) {
+          falhas.push(
+            `${par.asaas.descricao}: ${erro instanceof Error ? erro.message : "falha ao conciliar"}`,
+          );
+        }
+      }
+      let falhasCriar: string[] = [];
+      if (criar.length > 0) {
+        try {
+          const resultados = await criarComCamposDosCards(criar);
+          falhasCriar = resultados.filter((r) => !r.ok).map((r) => r.asaasId);
+          for (const r of resultados)
+            if (!r.ok) {
+              const item = criar.find((i) => i.id === r.asaasId);
+              falhas.push(`${item?.descricao ?? r.asaasId}: ${r.erro ?? "falha ao criar"}`);
+            }
+        } catch (erro) {
+          falhasCriar = criar.map((i) => i.id);
+          falhas.push(erro instanceof Error ? erro.message : "Falha ao criar lançamentos");
+        }
+      }
+      return { total: pares.length + criar.length, falhas, falhasCriar };
+    },
+    onSuccess: ({ total, falhas, falhasCriar }) => {
+      if (falhas.length === 0) toast.success(`${total} lançamento(s) criado(s) ou conciliado(s)`);
+      else toast.error(`${total - falhas.length} ok, ${falhas.length} falharam — ${falhas[0]}`);
+      setSelecionadosLote(new Set(falhasCriar));
+      invalidarBusca();
+    },
+    onError: (erro) =>
+      toast.error(erro instanceof Error ? erro.message : "Falha ao lançar e conciliar"),
+  });
+
+  const iniciarLancarEConciliar = () => {
+    if (!prontosParaCriar(itensLote)) return;
+    lancarEConciliar.mutate({ criar: itensLote, pares: sugestoesDoPeriodo });
+  };
+
+  const totalLancarEConciliar = itensLote.length + sugestoesDoPeriodo.length;
+  const ocupado = lancarEConciliar.isPending || criarTodos.isPending || conciliarTodas.isPending;
+  const saldoBate =
+    dados?.resumo.saldoAsaas != null &&
+    dados.resumo.saldoGranatum != null &&
+    Math.abs(dados.resumo.saldoAsaas - dados.resumo.saldoGranatum) < 0.005;
 
   return (
     <Shell itens={nav} contexto="Conciliação">
@@ -508,7 +633,8 @@ function ConciliacaoPage() {
         <FiltroPeriodo
           periodo={periodo}
           onMudar={setPeriodo}
-          onBuscar={buscarNovamente}
+          onBuscar={() => buscarNovamente(false)}
+          onAjustarAoSaldo={() => buscarNovamente(true)}
           buscando={busca.isPending}
         />
 
@@ -525,6 +651,58 @@ function ConciliacaoPage() {
               saldoGranatum={dados.resumo.saldoGranatum}
               saldoGranatumProjetado={dados.resumo.saldoGranatumProjetado}
             />
+
+            {ajuste ? (
+              <div
+                className={`corp-card fade-up p-4 text-sm ${
+                  ajuste.bateu ? "border-primary/60" : "border-gold/60"
+                }`}
+              >
+                {ajuste.bateu ? (
+                  <p className="text-body">
+                    Período ajustado ao saldo do Asaas:{" "}
+                    <strong className="text-foreground">
+                      {formatarDataCurta(ajuste.dataInicio)} a {formatarDataCurta(ajuste.dataFim)}
+                    </strong>
+                    . Criando e conciliando o que está marcado, o saldo do Granatum fica igual ao do
+                    Asaas.
+                  </p>
+                ) : ajuste.diferencaRestante === null ? (
+                  <p className="text-body">
+                    Sem o saldo do Asaas ou do Granatum não dá pra ajustar o período — mostrando os
+                    últimos 15 dias.
+                  </p>
+                ) : (
+                  <p className="text-body">
+                    Nenhum período nos últimos 15 dias fecha o saldo — ainda faltariam{" "}
+                    <strong className="text-gold">{formatarMoeda(ajuste.diferencaRestante)}</strong>
+                    . Mostrando os 15 dias: confira lançamento ignorado, em data errada ou que não
+                    passou pelo Asaas.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {!origemVinculo && totalLancarEConciliar > 0 ? (
+              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+                <p className="text-sm text-body">
+                  <strong className="text-foreground">{itensLote.length}</strong> lançamento(s) a
+                  criar e <strong className="text-foreground">{sugestoesDoPeriodo.length}</strong>{" "}
+                  sugestão(ões) a conciliar, com baixa no Granatum das que estão em aberto. Confira
+                  a categoria de cada card antes.
+                </p>
+                <Button variant="corp" disabled={ocupado} onClick={iniciarLancarEConciliar}>
+                  <Scale />{" "}
+                  {lancarEConciliar.isPending
+                    ? "Lançando e conciliando"
+                    : `Lançar e conciliar (${totalLancarEConciliar})`}
+                </Button>
+              </div>
+            ) : saldoBate ? (
+              <div className="corp-card fade-up border-primary/60 p-4 text-sm text-body">
+                Saldo do Granatum bate com o do Asaas.
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap gap-2">
               {(

@@ -15,11 +15,14 @@ export function FiltroPeriodo({
   periodo,
   onMudar,
   onBuscar,
+  onAjustarAoSaldo,
   buscando,
 }: {
   periodo: Periodo;
   onMudar: (p: Periodo) => void;
   onBuscar: () => void;
+  /** Só na conciliação: acha o período em que o saldo bate. */
+  onAjustarAoSaldo?: () => void;
   buscando: boolean;
 }) {
   return (
@@ -66,9 +69,21 @@ export function FiltroPeriodo({
           />
         </div>
       </div>
-      <Button variant="corp" onClick={onBuscar} disabled={buscando} className="ml-auto">
-        {buscando ? "Buscando" : "Buscar lançamentos"}
-      </Button>
+      <div className="ml-auto flex flex-wrap gap-2">
+        {onAjustarAoSaldo ? (
+          <Button
+            variant="corpOutline"
+            onClick={onAjustarAoSaldo}
+            disabled={buscando}
+            title="Volta até 15 dias a partir de hoje até achar o período em que o saldo do Granatum bate com o do Asaas"
+          >
+            Ajustar ao saldo
+          </Button>
+        ) : null}
+        <Button variant="corp" onClick={onBuscar} disabled={buscando}>
+          {buscando ? "Buscando" : "Buscar lançamentos"}
+        </Button>
+      </div>
     </div>
   );
 }

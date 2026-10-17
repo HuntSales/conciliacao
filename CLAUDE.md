@@ -361,6 +361,29 @@ null)`) e calcula `saldoGranatumProjetado = saldoGranatum + soma dos itens do
 Asaas ainda sem NENHUM par` (sugestão já é um lançamento real no Granatum, só
 não confirmado — já está refletido no saldo atual, não entra nessa soma).
 
+### Ajuste ao saldo e "Lançar e conciliar" (`ajustarAoSaldo`, `acharInicioQueBateSaldo`)
+
+Ao abrir a conciliação (e no botão "Ajustar ao saldo" do `FiltroPeriodo`),
+`buscarLancamentos` roda com `ajustarAoSaldo: true`: busca de uma vez os
+últimos `DIAS_AJUSTE_SALDO` (15) dias até hoje, roda tudo normalmente e só
+no fim corta a janela no dia achado por `acharInicioQueBateSaldo`
+(`matching.ts`, puro, testado) — o início mais recente em que a soma dos
+itens do Asaas que ainda mexem no saldo (`mexeNoSaldo`: sem nada no Granatum,
+ou ligado a lançamento em aberto) fecha `saldoAsaas − saldoGranatum` ao
+centavo. Sem nenhum que feche, devolve os 15 dias e quanto falta
+(`ajuste.diferencaRestante`). Sugestão cujo lado do Asaas ficou fora do
+corte volta a ser só pendente do Granatum. A resposta traz `periodo` e
+`ajuste`; a tela aplica o período no filtro e já marca em `selecionadosLote`
+tudo que pode ser criado. Pares automáticos da janela inteira já foram
+gravados (são pares exatos com lançamento baixado — não mexem no saldo).
+
+"Lançar e conciliar (N)" (`lancarEConciliar` em `conciliacao.tsx`) concilia
+todas as sugestões do período não interrompidas (mesmo `conciliarSugestao`
+do "Confirmar", **com baixa** das em aberto — o clique é a autorização,
+pedido explícito) e cria os selecionados com os campos de cada card
+(`criarComCamposDosCards`), sem abortar no meio; depois busca de novo no
+mesmo período, sem reajustar.
+
 ### Aba Lançamentos (`/lancamentos`, `lancamentos.functions.ts`, `FormNovoLancamento.tsx`)
 
 Recurso separado da conciliação (pedido explícito: não mexer no fluxo do
