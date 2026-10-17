@@ -350,6 +350,8 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     soma fechava; ele reprovou (a engine casa diferente numa janela grande
     e a tela abria nos 15 dias): agora testa período por período, de hoje
     pra trás, igual à busca manual. Sem bater, fica em hoje.
+    Depois pediu pra remover o "Conciliar todas as sugestões" (o "Lançar e
+    conciliar" já faz isso) e deixar o botão único verde, em destaque.
 
 ## Como o William prefere trabalhar
 

@@ -1,17 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CheckCheck,
-  CheckSquare,
-  EyeOff,
-  Layers,
-  Plus,
-  RefreshCw,
-  Scale,
-  Unlink,
-  X,
-} from "lucide-react";
+import { CheckSquare, EyeOff, Layers, Plus, RefreshCw, Scale, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 import { Shell, TituloPagina } from "@/components/corp/Shell";
 import { Button } from "@/components/ui/button";
@@ -297,32 +287,6 @@ function ConciliacaoPage() {
     onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar"),
   });
 
-  // Um por um, sem abortar no meio: cada sugestão tem seu próprio sucesso/falha.
-  const conciliarTodas = useMutation({
-    mutationFn: async (pares: { asaas: ItemAsaas; granatum: ItemGranatum }[]) => {
-      const falhas: string[] = [];
-      for (const par of pares) {
-        try {
-          await conciliarSugestao({ ...par, campos: camposGranatum(par.granatum) });
-        } catch (erro) {
-          falhas.push(
-            `${par.asaas.descricao}: ${erro instanceof Error ? erro.message : "falha ao conciliar"}`,
-          );
-        }
-      }
-      return { total: pares.length, falhas };
-    },
-    onSuccess: ({ total, falhas }) => {
-      if (falhas.length === 0) toast.success(`${total} sugestão(ões) conciliada(s)`);
-      else
-        toast.error(
-          `${total - falhas.length} conciliada(s), ${falhas.length} falharam — ${falhas[0] ?? ""}`,
-        );
-      invalidarBusca();
-    },
-    onError: (erro) => toast.error(erro instanceof Error ? erro.message : "Falha ao conciliar"),
-  });
-
   const alternarInterrupcao = async (asaas: ItemAsaas, granatum: ItemGranatum) => {
     const interromper = !interrompidas.has(asaas.id);
     const aplicar = (marcar: boolean) =>
@@ -487,11 +451,6 @@ function ConciliacaoPage() {
     pendentesAsaasVisiveis.every((a) => selecionadosLote.has(a.id));
   const podeSelecionarMais = pendentesAsaasVisiveis.some((a) => !selecionadosLote.has(a.id));
 
-  const sugestoesVisiveis = linhasFiltradas.flatMap((l) =>
-    l.asaas?.tipoPar === "sugestao" && l.granatum ? [{ asaas: l.asaas, granatum: l.granatum }] : [],
-  );
-  const sugestoesParaConciliar = sugestoesVisiveis.filter((p) => !interrompidas.has(p.asaas.id));
-
   // Cada item com a descrição/categoria/centro que está no próprio card.
   const criarComCamposDosCards = (itens: ItemAsaas[]) =>
     criarCadaUmAPartirDoAsaas({
@@ -612,7 +571,7 @@ function ConciliacaoPage() {
   };
 
   const totalLancarEConciliar = itensLote.length + sugestoesDoPeriodo.length;
-  const ocupado = lancarEConciliar.isPending || criarTodos.isPending || conciliarTodas.isPending;
+  const ocupado = lancarEConciliar.isPending || criarTodos.isPending;
   const saldoBate =
     dados?.resumo.saldoAsaas != null &&
     dados.resumo.saldoGranatum != null &&
@@ -684,14 +643,20 @@ function ConciliacaoPage() {
             ) : null}
 
             {!origemVinculo && totalLancarEConciliar > 0 ? (
-              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-primary/60 p-4">
+              <div className="corp-card fade-up flex flex-wrap items-center justify-between gap-3 border-success/70 p-4 shadow-[0_0_18px_color-mix(in_oklab,var(--color-success)_35%,transparent)]">
                 <p className="text-sm text-body">
                   <strong className="text-foreground">{itensLote.length}</strong> lançamento(s) a
                   criar e <strong className="text-foreground">{sugestoesDoPeriodo.length}</strong>{" "}
                   sugestão(ões) a conciliar, com baixa no Granatum das que estão em aberto. Confira
                   a categoria de cada card antes.
                 </p>
-                <Button variant="corp" disabled={ocupado} onClick={iniciarLancarEConciliar}>
+                <Button
+                  variant="corp"
+                  size="lg"
+                  className="bg-success text-sm text-black shadow-[0_0_16px_var(--color-success)] hover:bg-success/85"
+                  disabled={ocupado}
+                  onClick={iniciarLancarEConciliar}
+                >
                   <Scale />{" "}
                   {lancarEConciliar.isPending
                     ? "Lançando e conciliando"
@@ -723,28 +688,11 @@ function ConciliacaoPage() {
                   {rotulo}
                 </Button>
               ))}
-              {!origemVinculo && sugestoesVisiveis.length > 0 ? (
-                <Button
-                  variant="corp"
-                  size="sm"
-                  className="ml-auto"
-                  disabled={sugestoesParaConciliar.length === 0 || conciliarTodas.isPending}
-                  title="Interrompa (clicando na linha entre os cards) as ligações erradas antes"
-                  onClick={() => conciliarTodas.mutate(sugestoesParaConciliar)}
-                >
-                  <CheckCheck />{" "}
-                  {conciliarTodas.isPending
-                    ? "Conciliando"
-                    : sugestoesParaConciliar.length === sugestoesVisiveis.length
-                      ? `Conciliar todas as sugestões (${sugestoesVisiveis.length})`
-                      : `Conciliar selecionadas (${sugestoesParaConciliar.length})`}
-                </Button>
-              ) : null}
               {!origemVinculo && podeSelecionarMais ? (
                 <Button
                   variant="ghostCorp"
                   size="sm"
-                  className={sugestoesVisiveis.length > 0 ? "" : "ml-auto"}
+                  className="ml-auto"
                   onClick={() => {
                     setSelecionadosLote(
                       (prev) => new Set([...prev, ...pendentesAsaasVisiveis.map((a) => a.id)]),

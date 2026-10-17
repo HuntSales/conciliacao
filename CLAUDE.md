@@ -208,7 +208,7 @@ Padrão `createServerFn` + `.middleware([requireEmpresa])` do TanStack Start (ou
 `conciliacao.functions.ts` é o maior: busca extrato+lançamentos, cruza com pares já
 gravados, roda a engine só no que sobra, persiste automáticos na hora, devolve
 sugestões sem persistir (ficam só na resposta). Interromper uma sugestão é
-persistido — ver "Conciliar todas as sugestões" abaixo.
+persistido — ver "Conciliar sugestões em lote" abaixo.
 
 ### Conciliação manual (`FormConciliarManual.tsx`, `CardAsaas`/`CardGranatum` `modoVinculo`)
 
@@ -228,11 +228,12 @@ categoria, reaproveitando o cache de sugestões da tela). Um único botão
 pra "Confirmar" uma sugestão da engine, pra alimentar o histórico de sugestão
 (ver seção de IA abaixo) mesmo quando o usuário só confirma sem editar nada.
 
-### Conciliar todas as sugestões e interromper ligação (`sugestoes_recusadas`)
+### Conciliar sugestões em lote e interromper ligação (`sugestoes_recusadas`)
 
-Botão "Conciliar todas as sugestões (N)" na barra de filtros concilia em lote
-as sugestões visíveis (`conciliarTodas` em `conciliacao.tsx`, um por um, sem
-abortar no meio), cada uma exatamente como o "Confirmar" do card
+As sugestões são conciliadas em lote pelo "Lançar e conciliar" (ver "Ajuste
+ao saldo" abaixo; o antigo botão "Conciliar todas as sugestões" foi removido
+em 2026-10-17 — o "Lançar e conciliar" já faz isso quando não há o que
+criar), cada uma exatamente como o "Confirmar" do card
 (`conciliarSugestao`: aplica descrição/categoria/centro do card se mudou, dá
 baixa se em aberto, grava o par). Por isso os campos do `CardGranatum` também
 são controlados pela página (`edicoesGranatum` + `camposGranatum()`, que
@@ -241,7 +242,7 @@ pré-preenche com a sugestão quando o lançamento está sem categoria), igual a
 
 A linha tracejada entre os cards de uma sugestão é clicável (no celular, o
 botão "Interromper" do card): **interrompe** a ligação — linha vermelha com
-"X", o par sai do lote e o botão vira "Conciliar selecionadas (N)". Clicar de
+"X", e o par sai do "Lançar e conciliar". Clicar de
 novo restaura. A interrupção é **permanente** (pedido explícito): grava na
 hora em `sugestoes_recusadas` (`unique(empresa_id, asaas_id, granatum_id)`,
 `recusarSugestao`/`restaurarSugestao`), e `buscarLancamentos` passa esses
