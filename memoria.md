@@ -346,6 +346,10 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     todo dia), deixa marcado tudo que precisa ser criado, e um botão único
     "Lançar e conciliar" cria e concilia as sugestões, **dando baixa** nas em
     aberto (decisão dele: esse clique vale como autorização da baixa).
+    Primeira versão olhava os 15 dias de uma vez e cortava no dia em que a
+    soma fechava; ele reprovou (a engine casa diferente numa janela grande
+    e a tela abria nos 15 dias): agora testa período por período, de hoje
+    pra trás, igual à busca manual. Sem bater, fica em hoje.
 
 ## Como o William prefere trabalhar
 

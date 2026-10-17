@@ -364,18 +364,17 @@ não confirmado — já está refletido no saldo atual, não entra nessa soma).
 ### Ajuste ao saldo e "Lançar e conciliar" (`ajustarAoSaldo`, `acharInicioQueBateSaldo`)
 
 Ao abrir a conciliação (e no botão "Ajustar ao saldo" do `FiltroPeriodo`),
-`buscarLancamentos` roda com `ajustarAoSaldo: true`: busca de uma vez os
-últimos `DIAS_AJUSTE_SALDO` (15) dias até hoje, roda tudo normalmente e só
-no fim corta a janela no dia achado por `acharInicioQueBateSaldo`
-(`matching.ts`, puro, testado) — o início mais recente em que a soma dos
-itens do Asaas que ainda mexem no saldo (`mexeNoSaldo`: sem nada no Granatum,
-ou ligado a lançamento em aberto) fecha `saldoAsaas − saldoGranatum` ao
-centavo. Sem nenhum que feche, devolve os 15 dias e quanto falta
-(`ajuste.diferencaRestante`). Sugestão cujo lado do Asaas ficou fora do
-corte volta a ser só pendente do Granatum. A resposta traz `periodo` e
-`ajuste`; a tela aplica o período no filtro e já marca em `selecionadosLote`
-tudo que pode ser criado. Pares automáticos da janela inteira já foram
-gravados (são pares exatos com lançamento baixado — não mexem no saldo).
+`buscarLancamentos` roda com `ajustarAoSaldo: true` e repete o que o usuário
+fazia à mão (pedido explícito — **não** olhar a janela inteira de uma vez):
+concilia só hoje; se `saldoGranatumProjetado` não bater ao centavo com o
+saldo do Asaas, desde ontem; e assim por diante, até `DIAS_AJUSTE_SALDO` (15).
+Pra não buscar no Asaas/Granatum a cada dia testado, carrega os 15 dias (e a
+janela ampliada) uma vez e recorta por período em memória — o filtro da API
+usa a mesma data que `data` do lançamento. Cada período passa por
+`montarConciliacao` (o miolo da busca, igual a uma busca manual, inclusive
+gravando os automáticos). Nenhum bateu: fica em hoje e devolve quanto falta
+(`ajuste.diferencaRestante`). A tela aplica o `periodo` devolvido no filtro e
+já marca em `selecionadosLote` tudo que pode ser criado.
 
 "Lançar e conciliar (N)" (`lancarEConciliar` em `conciliacao.tsx`) concilia
 todas as sugestões do período não interrompidas (mesmo `conciliarSugestao`

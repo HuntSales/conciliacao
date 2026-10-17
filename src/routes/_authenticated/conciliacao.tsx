@@ -115,7 +115,8 @@ function ConciliacaoPage() {
     | null
   >(null);
 
-  // `ajustarAoSaldo`: acha sozinho o período (até 15 dias até hoje) em que o
+  // `ajustarAoSaldo`: testa só hoje, depois desde ontem, e assim por diante
+  // (até 15 dias), até achar o período em que o
   // saldo do Granatum bate com o do Asaas depois de criar e conciliar o
   // pendente, e já deixa marcado tudo que precisa ser criado.
   const busca = useMutation({
@@ -669,15 +670,14 @@ function ConciliacaoPage() {
                   </p>
                 ) : ajuste.diferencaRestante === null ? (
                   <p className="text-body">
-                    Sem o saldo do Asaas ou do Granatum não dá pra ajustar o período — mostrando os
-                    últimos 15 dias.
+                    Sem o saldo do Asaas ou do Granatum não dá pra ajustar o período — mostrando só
+                    hoje.
                   </p>
                 ) : (
                   <p className="text-body">
-                    Nenhum período nos últimos 15 dias fecha o saldo — ainda faltariam{" "}
+                    Nenhum período de até 15 dias fecha o saldo. Mostrando só hoje — ainda faltariam{" "}
                     <strong className="text-gold">{formatarMoeda(ajuste.diferencaRestante)}</strong>
-                    . Mostrando os 15 dias: confira lançamento ignorado, em data errada ou que não
-                    passou pelo Asaas.
+                    : confira lançamento ignorado, em data errada ou que não passou pelo Asaas.
                   </p>
                 )}
               </div>

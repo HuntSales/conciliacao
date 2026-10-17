@@ -14,7 +14,6 @@ import {
   buscarLancamentoPorIdentificadorExterno,
 } from "@/lib/mcp/granatum.server";
 import {
-  acharInicioQueBateSaldo,
   chavePar,
   conciliar,
   detectarJaNoGranatum,
@@ -89,7 +88,7 @@ const periodoSchema = z.object({
   ajustarAoSaldo: z.boolean().default(false),
 });
 
-// Concilia todo dia: 15 dias pra trás bastam pra achar onde o saldo bate.
+// Concilia todo dia: até 15 dias pra trás bastam pra achar onde o saldo bate.
 const DIAS_AJUSTE_SALDO = 15;
 
 export type ItemAsaas = LancamentoAsaas & {
@@ -158,293 +157,330 @@ async function abertosForaDoPeriodo(
   return candidatos.filter((g) => !fora.has(g.id));
 }
 
+type Fontes = {
+  asaas: LancamentoAsaas[];
+  granatum: LancamentoGranatum[];
+  /** Lançamentos da janela ampliada (faturas em aberto fora do período). */
+  janelaAmpliada: LancamentoGranatum[];
+  saldoAsaas: number | null;
+  saldoGranatum: number | null;
+};
+
+/**
+ * Concilia um período com os dados já carregados: cruza com os pares
+ * gravados, roda a engine no que sobra, grava os automáticos e monta o
+ * resumo. Separado do handler pro ajuste ao saldo poder repetir isso por
+ * período sem buscar tudo de novo no Asaas/Granatum.
+ */
+async function montarConciliacao(
+  empresaId: string,
+  usuarioId: string | null | undefined,
+  data: { dataInicio: string; dataFim: string; toleranciaDias: number },
+  { asaas, granatum, janelaAmpliada, saldoAsaas, saldoGranatum }: Fontes,
+) {
+  const asaasIds = new Set(asaas.map((a) => a.id));
+  const granatumIds = new Set(granatum.map((g) => g.id));
+
+  const [{ data: paresExistentes }, { data: ignoradosRows }, { data: recusadasRows }] =
+    await Promise.all([
+      supabaseAdmin
+        .from("pares_conciliacao")
+        .select("asaas_id, granatum_id, tipo")
+        .eq("empresa_id", empresaId)
+        .or(
+          `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
+            [...granatumIds].join(",") || '""'
+          })`,
+        ),
+      asaasIds.size + granatumIds.size === 0
+        ? Promise.resolve({ data: [] as { provedor: string; lancamento_id: string }[] })
+        : supabaseAdmin
+            .from("lancamentos_ignorados")
+            .select("provedor, lancamento_id")
+            .eq("empresa_id", empresaId)
+            .in("lancamento_id", [...asaasIds, ...granatumIds]),
+      asaasIds.size === 0
+        ? Promise.resolve({ data: [] as { asaas_id: string; granatum_id: string }[] })
+        : supabaseAdmin
+            .from("sugestoes_recusadas")
+            .select("asaas_id, granatum_id")
+            .eq("empresa_id", empresaId)
+            .in("asaas_id", [...asaasIds]),
+    ]);
+  // Ligações que o usuário interrompeu: nunca mais propostas.
+  const proibidos = new Set((recusadasRows ?? []).map((r) => chavePar(r.asaas_id, r.granatum_id)));
+  const ignorados = new Set((ignoradosRows ?? []).map((r) => `${r.provedor}:${r.lancamento_id}`));
+
+  const paresPorAsaas = new Map<string, { granatumId: string; tipo: string }>();
+  const paresPorGranatum = new Map<string, { asaasId: string; tipo: string }>();
+  for (const p of paresExistentes ?? []) {
+    paresPorAsaas.set(p.asaas_id, { granatumId: p.granatum_id, tipo: p.tipo });
+    paresPorGranatum.set(p.granatum_id, { asaasId: p.asaas_id, tipo: p.tipo });
+  }
+
+  // Par já gravado tem precedência sobre "ignorado" (só dá pra ignorar
+  // item sem par, mas o par pode ter sido feito por outra pessoa depois).
+  const asaasIgnorado = (id: string) => !paresPorAsaas.has(id) && ignorados.has(`asaas:${id}`);
+  const granatumIgnorado = (id: string) =>
+    !paresPorGranatum.has(id) && ignorados.has(`granatum:${id}`);
+
+  const asaasRestante = asaas.filter((a) => !paresPorAsaas.has(a.id) && !asaasIgnorado(a.id));
+  const granatumRestante = granatum.filter(
+    (g) => !paresPorGranatum.has(g.id) && !granatumIgnorado(g.id),
+  );
+
+  const candidatosAsaas: CandidatoAsaas[] = asaasRestante.map((a) => ({
+    id: a.id,
+    data: a.data,
+    valor: a.valor,
+    descricao: a.descricao,
+  }));
+  const candidatosGranatum: CandidatoGranatum[] = granatumRestante.map((g) => ({
+    id: g.id,
+    data: g.data,
+    valor: g.valor,
+    descricao: g.descricao,
+  }));
+
+  const resultado = conciliar(candidatosAsaas, candidatosGranatum, data.toleranciaDias, proibidos);
+
+  // Baixa no Granatum só acontece por clique do usuário. Par automático
+  // com lançamento ainda em aberto não é gravado sozinho: vira sugestão, e
+  // "Confirmar" dá a baixa (via `baixarEm` em `confirmarPar`).
+  for (const p of resultado.pares) {
+    if (p.tipo !== "automatico") continue;
+    const g = granatum.find((x) => x.id === p.granatumId);
+    if (g && !g.pago) p.tipo = "sugestao";
+  }
+
+  const novosAutomaticos = resultado.pares.filter((p) => p.tipo === "automatico");
+  if (novosAutomaticos.length > 0) {
+    await supabaseAdmin.from("pares_conciliacao").upsert(
+      novosAutomaticos.map((p) => {
+        const g = granatum.find((x) => x.id === p.granatumId);
+        return {
+          empresa_id: empresaId,
+          asaas_id: p.asaasId,
+          granatum_id: p.granatumId,
+          data: g?.data ?? data.dataInicio,
+          valor: g?.valor ?? 0,
+          tipo: "automatico" as const,
+          usuario_id: usuarioId ?? null,
+        };
+      }),
+      { onConflict: "empresa_id,asaas_id" },
+    );
+    for (const p of novosAutomaticos) {
+      paresPorAsaas.set(p.asaasId, { granatumId: p.granatumId, tipo: "automatico" });
+      paresPorGranatum.set(p.granatumId, { asaasId: p.asaasId, tipo: "automatico" });
+    }
+  }
+
+  for (const p of resultado.pares.filter((x) => x.tipo === "sugestao")) {
+    paresPorAsaas.set(p.asaasId, { granatumId: p.granatumId, tipo: "sugestao" });
+    paresPorGranatum.set(p.granatumId, { asaasId: p.asaasId, tipo: "sugestao" });
+  }
+
+  // O que a engine não ligou pode já estar no Granatum com outra data (ou
+  // criado daqui e o par desfeito): marca pra não deixar criar duplicado.
+  const jaNoGranatum = detectarJaNoGranatum(
+    candidatosAsaas.filter((a) => !paresPorAsaas.has(a.id)),
+    granatumRestante
+      .filter((g) => !paresPorGranatum.has(g.id))
+      .map((g) => ({
+        id: g.id,
+        data: g.data,
+        valor: g.valor,
+        descricao: g.descricao,
+        identificadorExterno: g.identificadorExterno,
+      })),
+    proibidos,
+  );
+
+  // Item do Asaas que mesmo assim ficou sem nada no Granatum: procura fatura
+  // em aberto logo antes/depois do período (mesmo valor exato) e propõe
+  // como sugestão — confirmar dá a baixa, igual a qualquer sugestão.
+  const semNada = candidatosAsaas.filter(
+    (a) => !paresPorAsaas.has(a.id) && !jaNoGranatum.has(a.id),
+  );
+  const extras: LancamentoGranatum[] = [];
+  if (semNada.length > 0) {
+    const abertos = await abertosForaDoPeriodo(
+      empresaId,
+      janelaAmpliada,
+      data.dataInicio,
+      data.dataFim,
+      granatumIds,
+    ).catch(() => [] as LancamentoGranatum[]);
+    // Mesmo critério de "já existe no Granatum": identificador externo ou
+    // valor exato, 1:1, vencimento mais próximo.
+    const achados = detectarJaNoGranatum(
+      semNada,
+      abertos.map((g) => ({
+        id: g.id,
+        data: g.data,
+        valor: g.valor,
+        descricao: g.descricao,
+        identificadorExterno: g.identificadorExterno,
+      })),
+      proibidos,
+    );
+    for (const [asaasId, { granatumId }] of achados) {
+      const g = abertos.find((x) => x.id === granatumId);
+      if (!g) continue;
+      extras.push(g);
+      paresPorAsaas.set(asaasId, { granatumId, tipo: "sugestao" });
+      paresPorGranatum.set(granatumId, { asaasId, tipo: "sugestao" });
+    }
+  }
+
+  const itensAsaas: ItemAsaas[] = asaas.map((a) => {
+    const par = paresPorAsaas.get(a.id);
+    return {
+      ...a,
+      parGranatumId: par?.granatumId ?? null,
+      tipoPar: (par?.tipo as ItemAsaas["tipoPar"]) ?? null,
+      ignorado: asaasIgnorado(a.id),
+      jaNoGranatum: jaNoGranatum.get(a.id) ?? null,
+    };
+  });
+  const itensGranatum: ItemGranatum[] = granatum.map((g) => {
+    const par = paresPorGranatum.get(g.id);
+    return {
+      ...g,
+      parAsaasId: par?.asaasId ?? null,
+      tipoPar: (par?.tipo as ItemGranatum["tipoPar"]) ?? null,
+      ignorado: granatumIgnorado(g.id),
+      foraDoPeriodo: false,
+    };
+  });
+  for (const g of extras) {
+    const par = paresPorGranatum.get(g.id);
+    itensGranatum.push({
+      ...g,
+      parAsaasId: par?.asaasId ?? null,
+      tipoPar: "sugestao",
+      ignorado: false,
+      foraDoPeriodo: true,
+    });
+  }
+
+  // Item do Asaas que ainda mexe no saldo do Granatum: sem nenhum
+  // lançamento lá (será criado) ou ligado a um em aberto (será baixado).
+  // Par com lançamento já baixado já está no saldo atual; ignorado e o que
+  // já parece existir no Granatum não entram.
+  const mexeNoSaldo = (a: ItemAsaas) => {
+    if (a.ignorado) return false;
+    if (!a.tipoPar) return !a.jaNoGranatum;
+    const g = itensGranatum.find((x) => x.id === a.parGranatumId);
+    return Boolean(g && !g.pago);
+  };
+
+  const periodo = { dataInicio: data.dataInicio, dataFim: data.dataFim };
+  const granatumDoPeriodo = itensGranatum.filter((g) => !g.foraDoPeriodo);
+
+  return {
+    asaas: itensAsaas,
+    granatum: itensGranatum,
+    periodo,
+    resumo: {
+      totalAsaas: itensAsaas.reduce((s, a) => s + a.valor, 0),
+      totalGranatum: granatumDoPeriodo.reduce((s, g) => s + g.valor, 0),
+      conciliadosAsaas: itensAsaas.filter((a) => a.tipoPar && a.tipoPar !== "sugestao").length,
+      conciliadosGranatum: granatumDoPeriodo.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
+        .length,
+      pendentesAsaas: itensAsaas.filter(
+        (a) => !a.ignorado && (!a.tipoPar || a.tipoPar === "sugestao"),
+      ).length,
+      pendentesGranatum: granatumDoPeriodo.filter(
+        (g) => !g.ignorado && (!g.tipoPar || g.tipoPar === "sugestao"),
+      ).length,
+      saldoAsaas,
+      saldoGranatum,
+      // Saldo do Granatum depois de criar e conciliar tudo que está pendente.
+      saldoGranatumProjetado:
+        saldoGranatum === null
+          ? null
+          : saldoGranatum + itensAsaas.filter(mexeNoSaldo).reduce((s, a) => s + a.valor, 0),
+    },
+  };
+}
+
+const centavos = (v: number) => Math.round(v * 100);
+
 export const buscarLancamentos = createServerFn({ method: "POST" })
   .middleware([requireEmpresa])
   .inputValidator((d: unknown) => periodoSchema.parse(d))
-  .handler(async ({ data: entrada, context }) => {
+  .handler(async ({ data, context }) => {
     const empresaId = context.empresaId;
     const contaId = await contaConfigurada(empresaId);
-    // No ajuste ao saldo busca a janela inteira de uma vez e só no fim corta
-    // no dia em que o saldo bate — evita uma busca por dia testado.
-    const data = entrada.ajustarAoSaldo
-      ? { ...entrada, dataInicio: somarDias(entrada.dataFim, -(DIAS_AJUSTE_SALDO - 1)) }
-      : entrada;
+    // No ajuste ao saldo carrega de uma vez os 15 dias e depois testa
+    // período por período em memória — o mesmo resultado de buscar um por um.
+    const inicioCarga = data.ajustarAoSaldo
+      ? somarDias(data.dataFim, -(DIAS_AJUSTE_SALDO - 1))
+      : data.dataInicio;
 
     // A janela ampliada (faturas em aberto fora do período) sai junto com a
-    // busca principal, pra não somar o tempo dela — só é usada se sobrar item
-    // do Asaas sem nada no Granatum. Falha aqui nunca derruba a busca.
-    const janelaAmpliada = listarLancamentosGranatum(
-      empresaId,
-      contaId,
-      somarDias(data.dataInicio, -DIAS_ANTES_FORA_DO_PERIODO),
-      somarDias(data.dataFim, DIAS_DEPOIS_FORA_DO_PERIODO),
-    ).catch(() => [] as LancamentoGranatum[]);
-
-    const [asaas, granatum, saldoAsaas, saldoGranatum] = await Promise.all([
-      buscarExtratoAsaas(empresaId, data.dataInicio, data.dataFim),
-      listarLancamentosGranatum(empresaId, contaId, data.dataInicio, data.dataFim),
+    // busca principal, pra não somar o tempo dela. Falha aqui nunca derruba
+    // a busca.
+    const [asaas, granatum, janelaAmpliada, saldoAsaas, saldoGranatum] = await Promise.all([
+      buscarExtratoAsaas(empresaId, inicioCarga, data.dataFim),
+      listarLancamentosGranatum(empresaId, contaId, inicioCarga, data.dataFim),
+      listarLancamentosGranatum(
+        empresaId,
+        contaId,
+        somarDias(inicioCarga, -DIAS_ANTES_FORA_DO_PERIODO),
+        somarDias(data.dataFim, DIAS_DEPOIS_FORA_DO_PERIODO),
+      ).catch(() => [] as LancamentoGranatum[]),
       buscarSaldoAsaas(empresaId).catch(() => null),
       buscarSaldoContaGranatum(empresaId, contaId).catch(() => null),
     ]);
 
-    const asaasIds = new Set(asaas.map((a) => a.id));
-    const granatumIds = new Set(granatum.map((g) => g.id));
-
-    const [{ data: paresExistentes }, { data: ignoradosRows }, { data: recusadasRows }] =
-      await Promise.all([
-        supabaseAdmin
-          .from("pares_conciliacao")
-          .select("asaas_id, granatum_id, tipo")
-          .eq("empresa_id", empresaId)
-          .or(
-            `asaas_id.in.(${[...asaasIds].join(",") || '""'}),granatum_id.in.(${
-              [...granatumIds].join(",") || '""'
-            })`,
-          ),
-        asaasIds.size + granatumIds.size === 0
-          ? Promise.resolve({ data: [] as { provedor: string; lancamento_id: string }[] })
-          : supabaseAdmin
-              .from("lancamentos_ignorados")
-              .select("provedor, lancamento_id")
-              .eq("empresa_id", empresaId)
-              .in("lancamento_id", [...asaasIds, ...granatumIds]),
-        asaasIds.size === 0
-          ? Promise.resolve({ data: [] as { asaas_id: string; granatum_id: string }[] })
-          : supabaseAdmin
-              .from("sugestoes_recusadas")
-              .select("asaas_id, granatum_id")
-              .eq("empresa_id", empresaId)
-              .in("asaas_id", [...asaasIds]),
-      ]);
-    // Ligações que o usuário interrompeu: nunca mais propostas.
-    const proibidos = new Set(
-      (recusadasRows ?? []).map((r) => chavePar(r.asaas_id, r.granatum_id)),
-    );
-    const ignorados = new Set((ignoradosRows ?? []).map((r) => `${r.provedor}:${r.lancamento_id}`));
-
-    const paresPorAsaas = new Map<string, { granatumId: string; tipo: string }>();
-    const paresPorGranatum = new Map<string, { asaasId: string; tipo: string }>();
-    for (const p of paresExistentes ?? []) {
-      paresPorAsaas.set(p.asaas_id, { granatumId: p.granatum_id, tipo: p.tipo });
-      paresPorGranatum.set(p.granatum_id, { asaasId: p.asaas_id, tipo: p.tipo });
-    }
-
-    // Par já gravado tem precedência sobre "ignorado" (só dá pra ignorar
-    // item sem par, mas o par pode ter sido feito por outra pessoa depois).
-    const asaasIgnorado = (id: string) => !paresPorAsaas.has(id) && ignorados.has(`asaas:${id}`);
-    const granatumIgnorado = (id: string) =>
-      !paresPorGranatum.has(id) && ignorados.has(`granatum:${id}`);
-
-    const asaasRestante = asaas.filter((a) => !paresPorAsaas.has(a.id) && !asaasIgnorado(a.id));
-    const granatumRestante = granatum.filter(
-      (g) => !paresPorGranatum.has(g.id) && !granatumIgnorado(g.id),
-    );
-
-    const candidatosAsaas: CandidatoAsaas[] = asaasRestante.map((a) => ({
-      id: a.id,
-      data: a.data,
-      valor: a.valor,
-      descricao: a.descricao,
-    }));
-    const candidatosGranatum: CandidatoGranatum[] = granatumRestante.map((g) => ({
-      id: g.id,
-      data: g.data,
-      valor: g.valor,
-      descricao: g.descricao,
-    }));
-
-    const resultado = conciliar(
-      candidatosAsaas,
-      candidatosGranatum,
-      data.toleranciaDias,
-      proibidos,
-    );
-
-    // Baixa no Granatum só acontece por clique do usuário. Par automático
-    // com lançamento ainda em aberto não é gravado sozinho: vira sugestão, e
-    // "Confirmar" dá a baixa (via `baixarEm` em `confirmarPar`).
-    for (const p of resultado.pares) {
-      if (p.tipo !== "automatico") continue;
-      const g = granatum.find((x) => x.id === p.granatumId);
-      if (g && !g.pago) p.tipo = "sugestao";
-    }
-
-    const novosAutomaticos = resultado.pares.filter((p) => p.tipo === "automatico");
-    if (novosAutomaticos.length > 0) {
-      await supabaseAdmin.from("pares_conciliacao").upsert(
-        novosAutomaticos.map((p) => {
-          const g = granatum.find((x) => x.id === p.granatumId);
-          return {
-            empresa_id: empresaId,
-            asaas_id: p.asaasId,
-            granatum_id: p.granatumId,
-            data: g?.data ?? data.dataInicio,
-            valor: g?.valor ?? 0,
-            tipo: "automatico" as const,
-            usuario_id: context.userId ?? null,
-          };
-        }),
-        { onConflict: "empresa_id,asaas_id" },
-      );
-      for (const p of novosAutomaticos) {
-        paresPorAsaas.set(p.asaasId, { granatumId: p.granatumId, tipo: "automatico" });
-        paresPorGranatum.set(p.granatumId, { asaasId: p.asaasId, tipo: "automatico" });
-      }
-    }
-
-    for (const p of resultado.pares.filter((x) => x.tipo === "sugestao")) {
-      paresPorAsaas.set(p.asaasId, { granatumId: p.granatumId, tipo: "sugestao" });
-      paresPorGranatum.set(p.granatumId, { asaasId: p.asaasId, tipo: "sugestao" });
-    }
-
-    // O que a engine não ligou pode já estar no Granatum com outra data (ou
-    // criado daqui e o par desfeito): marca pra não deixar criar duplicado.
-    const jaNoGranatum = detectarJaNoGranatum(
-      candidatosAsaas.filter((a) => !paresPorAsaas.has(a.id)),
-      granatumRestante
-        .filter((g) => !paresPorGranatum.has(g.id))
-        .map((g) => ({
-          id: g.id,
-          data: g.data,
-          valor: g.valor,
-          descricao: g.descricao,
-          identificadorExterno: g.identificadorExterno,
-        })),
-      proibidos,
-    );
-
-    // Item do Asaas que mesmo assim ficou sem nada no Granatum: procura fatura
-    // em aberto logo antes/depois do período (mesmo valor exato) e propõe
-    // como sugestão — confirmar dá a baixa, igual a qualquer sugestão.
-    const semNada = candidatosAsaas.filter(
-      (a) => !paresPorAsaas.has(a.id) && !jaNoGranatum.has(a.id),
-    );
-    const extras: LancamentoGranatum[] = [];
-    if (semNada.length > 0) {
-      const abertos = await abertosForaDoPeriodo(
+    // Recorta os dados carregados num período, como se tivesse buscado só ele.
+    const conciliarPeriodo = (dataInicio: string) => {
+      const dentro = (d: string) => d >= dataInicio && d <= data.dataFim;
+      const antes = somarDias(dataInicio, -DIAS_ANTES_FORA_DO_PERIODO);
+      const depois = somarDias(data.dataFim, DIAS_DEPOIS_FORA_DO_PERIODO);
+      return montarConciliacao(
         empresaId,
-        await janelaAmpliada,
-        data.dataInicio,
-        data.dataFim,
-        granatumIds,
-      ).catch(() => [] as LancamentoGranatum[]);
-      // Mesmo critério de "já existe no Granatum": identificador externo ou
-      // valor exato, 1:1, vencimento mais próximo.
-      const achados = detectarJaNoGranatum(
-        semNada,
-        abertos.map((g) => ({
-          id: g.id,
-          data: g.data,
-          valor: g.valor,
-          descricao: g.descricao,
-          identificadorExterno: g.identificadorExterno,
-        })),
-        proibidos,
+        context.userId,
+        { dataInicio, dataFim: data.dataFim, toleranciaDias: data.toleranciaDias },
+        {
+          asaas: asaas.filter((a) => dentro(a.data)),
+          granatum: granatum.filter((g) => dentro(g.data)),
+          janelaAmpliada: janelaAmpliada.filter((g) => g.data >= antes && g.data <= depois),
+          saldoAsaas,
+          saldoGranatum,
+        },
       );
-      for (const [asaasId, { granatumId }] of achados) {
-        const g = abertos.find((x) => x.id === granatumId);
-        if (!g) continue;
-        extras.push(g);
-        paresPorAsaas.set(asaasId, { granatumId, tipo: "sugestao" });
-        paresPorGranatum.set(granatumId, { asaasId, tipo: "sugestao" });
-      }
-    }
-
-    let itensAsaas: ItemAsaas[] = asaas.map((a) => {
-      const par = paresPorAsaas.get(a.id);
-      return {
-        ...a,
-        parGranatumId: par?.granatumId ?? null,
-        tipoPar: (par?.tipo as ItemAsaas["tipoPar"]) ?? null,
-        ignorado: asaasIgnorado(a.id),
-        jaNoGranatum: jaNoGranatum.get(a.id) ?? null,
-      };
-    });
-    let itensGranatum: ItemGranatum[] = granatum.map((g) => {
-      const par = paresPorGranatum.get(g.id);
-      return {
-        ...g,
-        parAsaasId: par?.asaasId ?? null,
-        tipoPar: (par?.tipo as ItemGranatum["tipoPar"]) ?? null,
-        ignorado: granatumIgnorado(g.id),
-        foraDoPeriodo: false,
-      };
-    });
-    for (const g of extras) {
-      const par = paresPorGranatum.get(g.id);
-      itensGranatum.push({
-        ...g,
-        parAsaasId: par?.asaasId ?? null,
-        tipoPar: "sugestao",
-        ignorado: false,
-        foraDoPeriodo: true,
-      });
-    }
-
-    // Item do Asaas que ainda mexe no saldo do Granatum: sem nenhum
-    // lançamento lá (será criado) ou ligado a um em aberto (será baixado).
-    // Par com lançamento já baixado já está no saldo atual; ignorado e o que
-    // já parece existir no Granatum não entram.
-    const mexeNoSaldo = (a: ItemAsaas) => {
-      if (a.ignorado) return false;
-      if (!a.tipoPar) return !a.jaNoGranatum;
-      const g = itensGranatum.find((x) => x.id === a.parGranatumId);
-      return Boolean(g && !g.pago);
     };
 
-    let periodo = { dataInicio: data.dataInicio, dataFim: data.dataFim };
-    let ajuste: { bateu: boolean; diferencaRestante: number } | null = null;
-    if (entrada.ajustarAoSaldo && saldoAsaas !== null && saldoGranatum !== null) {
-      const achado = acharInicioQueBateSaldo(
-        itensAsaas.filter(mexeNoSaldo).map((a) => ({ data: a.data, valor: a.valor })),
-        saldoAsaas - saldoGranatum,
-        data.dataFim,
-        DIAS_AJUSTE_SALDO,
-      );
-      periodo = { dataInicio: achado.dataInicio, dataFim: data.dataFim };
-      ajuste = { bateu: achado.bateu, diferencaRestante: achado.diferencaRestante };
-      // Corta a janela no dia achado. Sugestão cujo lado do Asaas ficou de
-      // fora volta a ser só um lançamento pendente do Granatum.
-      itensAsaas = itensAsaas.filter((a) => a.data >= periodo.dataInicio);
-      const asaasMantidos = new Set(itensAsaas.map((a) => a.id));
-      itensGranatum = itensGranatum
-        .filter((g) =>
-          g.foraDoPeriodo
-            ? Boolean(g.parAsaasId && asaasMantidos.has(g.parAsaasId))
-            : g.data >= periodo.dataInicio,
-        )
-        .map((g) =>
-          g.tipoPar === "sugestao" && g.parAsaasId && !asaasMantidos.has(g.parAsaasId)
-            ? { ...g, parAsaasId: null, tipoPar: null }
-            : g,
-        );
+    if (!data.ajustarAoSaldo) return { ...(await conciliarPeriodo(data.dataInicio)), ajuste: null };
+    if (saldoAsaas === null || saldoGranatum === null) {
+      return {
+        ...(await conciliarPeriodo(data.dataFim)),
+        ajuste: { bateu: false, diferencaRestante: null },
+      };
     }
-    const granatumDoPeriodo = itensGranatum.filter((g) => !g.foraDoPeriodo);
 
+    // Igual ao que o usuário fazia à mão: só hoje; não bateu, desde ontem;
+    // e assim por diante, até o saldo projetado do Granatum bater com o do
+    // Asaas.
+    for (let k = 0; k < DIAS_AJUSTE_SALDO; k++) {
+      const r = await conciliarPeriodo(somarDias(data.dataFim, -k));
+      const projetado = r.resumo.saldoGranatumProjetado;
+      if (projetado !== null && centavos(projetado) === centavos(saldoAsaas)) {
+        return { ...r, ajuste: { bateu: true, diferencaRestante: 0 } };
+      }
+    }
+    // Nenhum bateu: fica em hoje (conciliação é diária) e mostra quanto falta.
+    const hoje = await conciliarPeriodo(data.dataFim);
     return {
-      asaas: itensAsaas,
-      granatum: itensGranatum,
-      periodo,
-      ajuste,
-      resumo: {
-        totalAsaas: itensAsaas.reduce((s, a) => s + a.valor, 0),
-        totalGranatum: granatumDoPeriodo.reduce((s, g) => s + g.valor, 0),
-        conciliadosAsaas: itensAsaas.filter((a) => a.tipoPar && a.tipoPar !== "sugestao").length,
-        conciliadosGranatum: granatumDoPeriodo.filter((g) => g.tipoPar && g.tipoPar !== "sugestao")
-          .length,
-        pendentesAsaas: itensAsaas.filter(
-          (a) => !a.ignorado && (!a.tipoPar || a.tipoPar === "sugestao"),
-        ).length,
-        pendentesGranatum: granatumDoPeriodo.filter(
-          (g) => !g.ignorado && (!g.tipoPar || g.tipoPar === "sugestao"),
-        ).length,
-        saldoAsaas,
-        saldoGranatum,
-        // Saldo do Granatum depois de criar e conciliar tudo que está pendente.
-        saldoGranatumProjetado:
-          saldoGranatum === null
-            ? null
-            : saldoGranatum + itensAsaas.filter(mexeNoSaldo).reduce((s, a) => s + a.valor, 0),
+      ...hoje,
+      ajuste: {
+        bateu: false,
+        diferencaRestante:
+          (centavos(saldoAsaas) - centavos(hoje.resumo.saldoGranatumProjetado ?? 0)) / 100,
       },
     };
   });

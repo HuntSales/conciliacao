@@ -75,7 +75,7 @@ export function FiltroPeriodo({
             variant="corpOutline"
             onClick={onAjustarAoSaldo}
             disabled={buscando}
-            title="Volta até 15 dias a partir de hoje até achar o período em que o saldo do Granatum bate com o do Asaas"
+            title="Testa só hoje, depois desde ontem, e assim por diante (até 15 dias), até o saldo do Granatum bater com o do Asaas"
           >
             Ajustar ao saldo
           </Button>
