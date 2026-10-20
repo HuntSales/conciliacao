@@ -206,3 +206,114 @@ export function detectarJaNoGranatum(
 
   return resultado;
 }
+
+// Pagamento com atraso: o cliente paga até N dias depois do vencimento e o
+// Asaas soma juros/multa — o valor recebido fica um pouco acima do lançado.
+export const DIAS_MAX_ATRASO = 10;
+export const ACRESCIMO_MAX = 0.1;
+
+// Palavras que aparecem na descrição de qualquer cobrança e não dizem quem é
+// o cliente — fora da comparação de nome.
+const PALAVRAS_GENERICAS = new Set([
+  "COBRANCA",
+  "RECEBIDA",
+  "FATURA",
+  "NR",
+  "TAXA",
+  "PAGAMENTO",
+  "LTDA",
+  "ME",
+  "EPP",
+  "EIRELI",
+  "SA",
+  "MEI",
+]);
+
+function tokensDoNome(texto: string): Set<string> {
+  return new Set(
+    normalizarTexto(texto).filter((t) => !/^\d+$/.test(t) && !PALAVRAS_GENERICAS.has(t)),
+  );
+}
+
+/** Todas as palavras do nome mais curto aparecem no outro (ex.: "ATM TECH"). */
+function mesmoNome(a: string, b: string): boolean {
+  const ta = tokensDoNome(a);
+  const tb = tokensDoNome(b);
+  const [menor, maior] = ta.size <= tb.size ? [ta, tb] : [tb, ta];
+  if (menor.size === 0) return false;
+  for (const t of menor) if (!maior.has(t)) return false;
+  return true;
+}
+
+export type PagoComAtraso = {
+  granatumId: string;
+  diasAtraso: number;
+  /** Valor recebido − valor lançado (juros/multa), com o sinal do lançamento. */
+  acrescimo: number;
+};
+
+/**
+ * Para itens do Asaas sem nada no Granatum, acha o lançamento **em aberto**
+ * que foi pago com atraso: pago de 0 a `DIAS_MAX_ATRASO` dias depois do
+ * vencimento, valor recebido maior que o lançado em até `ACRESCIMO_MAX`
+ * (nunca menor — desconto não entra) e, pra não trocar cliente, a
+ * referência externa do Asaas na descrição do Granatum ou o mesmo nome.
+ * 1:1; prefere referência, depois menos dias de atraso, depois menor
+ * acréscimo. É sempre só sugestão.
+ */
+export function detectarPagoComAtraso(
+  asaas: (CandidatoAsaas & { referencia: string | null })[],
+  granatumAbertos: CandidatoGranatum[],
+  proibidos: ReadonlySet<string> = new Set(),
+): Map<string, PagoComAtraso> {
+  const candidatos: {
+    asaasId: string;
+    granatumId: string;
+    porReferencia: boolean;
+    dias: number;
+    acrescimo: number;
+  }[] = [];
+  for (const a of asaas) {
+    const recebido = Math.round(a.valor * CENTAVOS);
+    for (const g of granatumAbertos) {
+      const lancado = Math.round(g.valor * CENTAVOS);
+      if (recebido * lancado <= 0) continue;
+      if (Math.abs(recebido) <= Math.abs(lancado)) continue;
+      if (Math.abs(recebido) > Math.round(Math.abs(lancado) * (1 + ACRESCIMO_MAX))) continue;
+      const dias = diferencaDias(a.data, g.data);
+      if (dias < 0 || dias > DIAS_MAX_ATRASO) continue;
+      if (proibidos.has(chavePar(a.id, g.id))) continue;
+      const ref = a.referencia?.trim().toUpperCase();
+      const porReferencia = Boolean(ref) && normalizarTexto(g.descricao).includes(ref!);
+      if (!porReferencia && !mesmoNome(a.descricao, g.descricao)) continue;
+      candidatos.push({
+        asaasId: a.id,
+        granatumId: g.id,
+        porReferencia,
+        dias,
+        acrescimo: (recebido - lancado) / CENTAVOS,
+      });
+    }
+  }
+  candidatos.sort(
+    (x, y) =>
+      Number(y.porReferencia) - Number(x.porReferencia) ||
+      x.dias - y.dias ||
+      Math.abs(x.acrescimo) - Math.abs(y.acrescimo) ||
+      x.asaasId.localeCompare(y.asaasId) ||
+      x.granatumId.localeCompare(y.granatumId),
+  );
+
+  const resultado = new Map<string, PagoComAtraso>();
+  const usados = new Set<string>();
+  for (const c of candidatos) {
+    if (resultado.has(c.asaasId) || usados.has(c.granatumId)) continue;
+    resultado.set(c.asaasId, {
+      granatumId: c.granatumId,
+      diasAtraso: c.dias,
+      acrescimo: c.acrescimo,
+    });
+    usados.add(c.granatumId);
+  }
+  return resultado;
+}

@@ -145,11 +145,30 @@ export function CardGranatum({
           {item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
             <span className="chip border-gold bg-gold/10 text-gold">Fora do período</span>
           ) : null}
+          {item.pagoComAtraso && item.tipoPar === "sugestao" ? (
+            <span className="chip border-gold bg-gold/10 text-gold">Pago com atraso</span>
+          ) : null}
           {badge(item.tipoPar, item.ignorado, interrompida ?? false)}
         </div>
       </div>
 
-      {item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
+      {item.pagoComAtraso && item.tipoPar === "sugestao" ? (
+        <p className="flex items-start gap-2 border border-gold/60 bg-gold/10 p-3 text-xs text-body">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+          <span>
+            Pago{" "}
+            {item.pagoComAtraso.diasAtraso === 0
+              ? "no vencimento"
+              : `com ${item.pagoComAtraso.diasAtraso} dia(s) de atraso`}{" "}
+            (vencimento em {formatarDataCurta(item.data)}), com{" "}
+            <strong className="text-foreground">
+              {formatarMoeda(Math.abs(item.pagoComAtraso.acrescimo))}
+            </strong>{" "}
+            de juros/multa. Confirmar dá a baixa e passa o valor do lançamento para o recebido no
+            Asaas.
+          </span>
+        </p>
+      ) : item.foraDoPeriodo && item.tipoPar === "sugestao" ? (
         <p className="flex items-start gap-2 border border-gold/60 bg-gold/10 p-3 text-xs text-body">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
           <span>

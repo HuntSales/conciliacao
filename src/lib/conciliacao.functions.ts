@@ -17,7 +17,9 @@ import {
   chavePar,
   conciliar,
   detectarJaNoGranatum,
+  detectarPagoComAtraso,
   similaridadeDescricao,
+  type PagoComAtraso,
   type CandidatoAsaas,
   type JaNoGranatum,
   type CandidatoGranatum,
@@ -48,20 +50,27 @@ async function contaConfigurada(empresaId: string): Promise<string> {
 /**
  * Dá baixa no Granatum de um lançamento em aberto que acabou de ser
  * conciliado, usando a data do extrato do Asaas (quando o dinheiro de fato
- * entrou/saiu) como data de pagamento. Registra no log de auditoria.
+ * entrou/saiu) como data de pagamento. Com `valor` (pago com atraso, com
+ * juros/multa), passa o valor do lançamento pro recebido. Registra no log
+ * de auditoria.
  */
 async function baixarNoGranatum(
   empresaId: string,
   granatumId: string,
   dataPagamento: string,
   usuarioId: string | null | undefined,
+  valor?: { de: number; para: number },
 ): Promise<void> {
-  await editarLancamentoGranatum(empresaId, { id: granatumId, dataPagamento });
+  await editarLancamentoGranatum(empresaId, {
+    id: granatumId,
+    dataPagamento,
+    ...(valor ? { valor: valor.para } : {}),
+  });
   await supabaseAdmin.from("log_alteracoes_granatum").insert({
     empresa_id: empresaId,
     lancamento_id: granatumId,
-    antes: { dataPagamento: null },
-    depois: { dataPagamento },
+    antes: { dataPagamento: null, ...(valor ? { valor: valor.de } : {}) },
+    depois: { dataPagamento, ...(valor ? { valor: valor.para } : {}) },
     usuario_id: usuarioId ?? null,
   });
 }
@@ -114,6 +123,12 @@ export type ItemGranatum = LancamentoGranatum & {
    * sugestão; não entra nos totais do período.
    */
   foraDoPeriodo: boolean;
+  /**
+   * Sugestão de fatura em aberto paga com atraso, com juros/multa: o valor
+   * recebido no Asaas é maior. Confirmar dá a baixa e passa o valor do
+   * lançamento pro valor recebido.
+   */
+  pagoComAtraso: Omit<PagoComAtraso, "granatumId"> | null;
 };
 
 // Janela extra, em volta do período, pra achar fatura em aberto que venceu
@@ -304,6 +319,7 @@ async function montarConciliacao(
     (a) => !paresPorAsaas.has(a.id) && !jaNoGranatum.has(a.id),
   );
   const extras: LancamentoGranatum[] = [];
+  const atrasos = new Map<string, Omit<PagoComAtraso, "granatumId">>();
   if (semNada.length > 0) {
     const abertos = await abertosForaDoPeriodo(
       empresaId,
@@ -332,6 +348,30 @@ async function montarConciliacao(
       paresPorAsaas.set(asaasId, { granatumId, tipo: "sugestao" });
       paresPorGranatum.set(granatumId, { asaasId, tipo: "sugestao" });
     }
+
+    // Ainda sem nada: fatura em aberto (no período ou logo antes) paga com
+    // atraso e juros/multa — valor um pouco maior, mesmo cliente.
+    const abertosDoPeriodo = granatumRestante.filter((g) => !g.pago && !paresPorGranatum.has(g.id));
+    const abertosDeFora = abertos.filter((g) => !paresPorGranatum.has(g.id));
+    const comAtraso = detectarPagoComAtraso(
+      semNada
+        .filter((a) => !paresPorAsaas.has(a.id))
+        .map((a) => ({ ...a, referencia: asaas.find((x) => x.id === a.id)?.referencia ?? null })),
+      [...abertosDoPeriodo, ...abertosDeFora].map((g) => ({
+        id: g.id,
+        data: g.data,
+        valor: g.valor,
+        descricao: g.descricao,
+      })),
+      proibidos,
+    );
+    for (const [asaasId, { granatumId, ...atraso }] of comAtraso) {
+      const deFora = abertosDeFora.find((x) => x.id === granatumId);
+      if (deFora) extras.push(deFora);
+      atrasos.set(granatumId, atraso);
+      paresPorAsaas.set(asaasId, { granatumId, tipo: "sugestao" });
+      paresPorGranatum.set(granatumId, { asaasId, tipo: "sugestao" });
+    }
   }
 
   const itensAsaas: ItemAsaas[] = asaas.map((a) => {
@@ -352,6 +392,7 @@ async function montarConciliacao(
       tipoPar: (par?.tipo as ItemGranatum["tipoPar"]) ?? null,
       ignorado: granatumIgnorado(g.id),
       foraDoPeriodo: false,
+      pagoComAtraso: atrasos.get(g.id) ?? null,
     };
   });
   for (const g of extras) {
@@ -362,6 +403,7 @@ async function montarConciliacao(
       tipoPar: "sugestao",
       ignorado: false,
       foraDoPeriodo: true,
+      pagoComAtraso: atrasos.get(g.id) ?? null,
     });
   }
 
@@ -591,6 +633,8 @@ const confirmarParSchema = z.object({
   centroCustoId: z.string().nullable().optional(),
   /** Lançamento do Granatum ainda em aberto: data (do Asaas) pra dar baixa. */
   baixarEm: z.string().optional(),
+  /** Pago com atraso: na baixa, o valor do lançamento passa pro recebido. */
+  ajustarValor: z.object({ de: z.number(), para: z.number() }).optional(),
 });
 
 export const confirmarPar = createServerFn({ method: "POST" })
@@ -599,7 +643,13 @@ export const confirmarPar = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     if (data.baixarEm) {
       try {
-        await baixarNoGranatum(context.empresaId, data.granatumId, data.baixarEm, context.userId);
+        await baixarNoGranatum(
+          context.empresaId,
+          data.granatumId,
+          data.baixarEm,
+          context.userId,
+          data.ajustarValor,
+        );
       } catch (erro) {
         throw new Error(
           `Falha ao dar baixa no Granatum: ${erro instanceof Error ? erro.message : "erro desconhecido"}`,

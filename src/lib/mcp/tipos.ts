@@ -4,6 +4,8 @@ export type LancamentoAsaas = {
   descricao: string;
   valor: number; // negativo = despesa, positivo = receita
   tipo: "receita" | "despesa";
+  /** `externalReference` da cobrança (ex.: o número do contrato no Granatum). */
+  referencia: string | null;
 };
 
 export type LancamentoGranatum = {

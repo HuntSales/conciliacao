@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { chavePar, conciliar, detectarJaNoGranatum, similaridadeDescricao } from "./matching";
+import {
+  chavePar,
+  conciliar,
+  detectarJaNoGranatum,
+  detectarPagoComAtraso,
+  similaridadeDescricao,
+} from "./matching";
 import type { CandidatoAsaas, CandidatoGranatum } from "./matching";
 
 function a(over: Partial<CandidatoAsaas> & { id: string }): CandidatoAsaas {
@@ -170,5 +176,63 @@ describe("pares proibidos (ligação interrompida)", () => {
       proibidos,
     );
     expect(r.size).toBe(0);
+  });
+});
+
+describe("detectarPagoComAtraso", () => {
+  const atm = {
+    id: "a1",
+    data: "2026-10-20",
+    valor: 3920.78,
+    descricao: "Cobrança recebida - fatura nr. 906480236 ATM TECH LTDA",
+    referencia: "7444",
+  };
+  const fatura = {
+    id: "g1",
+    data: "2026-10-19",
+    valor: 3688.3,
+    descricao: "ATM TECH LTDA - Hunt Pilot 7444 ",
+  };
+
+  it("acha a fatura da ATM paga com 1 dia de atraso e juros (caso real)", () => {
+    const r = detectarPagoComAtraso([atm], [fatura]);
+    expect(r.get("a1")).toEqual({ granatumId: "g1", diasAtraso: 1, acrescimo: 232.48 });
+  });
+
+  it("aceita só pelo nome quando não tem referência", () => {
+    const r = detectarPagoComAtraso([{ ...atm, referencia: null }], [fatura]);
+    expect(r.get("a1")?.granatumId).toBe("g1");
+  });
+
+  it("não liga cliente diferente com valor e data compatíveis", () => {
+    const r = detectarPagoComAtraso(
+      [{ ...atm, referencia: null, descricao: "Cobrança recebida - fatura nr. 1 CLINICA VIDA" }],
+      [{ ...fatura, descricao: "CLINICA SAUDE - Hunt Pilot 9999" }],
+    );
+    expect(r.size).toBe(0);
+  });
+
+  it("não aceita desconto, nem acréscimo acima de 10%, nem mais de 10 dias", () => {
+    expect(detectarPagoComAtraso([{ ...atm, valor: 3600 }], [fatura]).size).toBe(0);
+    expect(detectarPagoComAtraso([{ ...atm, valor: 4100 }], [fatura]).size).toBe(0);
+    expect(detectarPagoComAtraso([{ ...atm, data: "2026-10-30" }], [fatura]).size).toBe(0);
+    expect(detectarPagoComAtraso([{ ...atm, data: "2026-10-18" }], [fatura]).size).toBe(0);
+  });
+
+  it("não liga receita a despesa", () => {
+    const r = detectarPagoComAtraso([{ ...atm, valor: -3920.78 }], [fatura]);
+    expect(r.size).toBe(0);
+  });
+
+  it("respeita par proibido e é 1:1, preferindo a referência", () => {
+    expect(detectarPagoComAtraso([atm], [fatura], new Set([chavePar("a1", "g1")])).size).toBe(0);
+    const r = detectarPagoComAtraso(
+      [atm],
+      [
+        { ...fatura, id: "g0", data: "2026-10-20", descricao: "ATM TECH LTDA - Hunt Pilot" },
+        fatura,
+      ],
+    );
+    expect(r.get("a1")?.granatumId).toBe("g1");
   });
 });

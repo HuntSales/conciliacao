@@ -200,6 +200,23 @@ valor exato em qualquer data, 1:1, data mais próxima) — usada pra marcar
 criação"). `conciliar` e `detectarJaNoGranatum` recebem `proibidos`
 (`chavePar(asaasId, granatumId)`), as ligações que o usuário interrompeu.
 
+**Pago com atraso** (`detectarPagoComAtraso`, 2026-10-20): cliente que paga
+uns dias depois do vencimento chega no Asaas com juros/multa — valor maior
+que o lançado. Depois do valor exato (engine, `jaNoGranatum`, fora do
+período), item do Asaas ainda sem nada casa com lançamento **em aberto** (no
+período ou da janela ampliada) se: pago de 0 a `DIAS_MAX_ATRASO` (10) dias
+depois do vencimento; valor recebido **maior** em até `ACRESCIMO_MAX` (10%) —
+desconto não entra (decisão do usuário); e mesmo cliente: o
+`externalReference` do Asaas (`LancamentoAsaas.referencia`, ex.: "7444")
+como palavra na descrição do Granatum, ou todas as palavras do nome mais
+curto no outro (sem números e palavras genéricas como "Cobrança"/"Ltda").
+Sempre sugestão (`ItemGranatum.pagoComAtraso`, chip "Pago com atraso" e aviso
+com o acréscimo). Confirmar/"Lançar e conciliar" manda `ajustarValor` pro
+`confirmarPar`: a baixa também passa o valor **do próprio lançamento** pro
+recebido (decisão do usuário: mesmo lançamento, não um de juros à parte),
+com antes/depois em `log_alteracoes_granatum`. Caso real que motivou: ATM
+(R$ 3.688,30 vencido 19/10, recebido R$ 3.920,78 em 20/10).
+
 ### Server functions (`src/lib/*.functions.ts`)
 
 Padrão `createServerFn` + `.middleware([requireEmpresa])` do TanStack Start (ou

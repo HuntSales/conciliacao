@@ -96,7 +96,13 @@ export async function testarConexaoAsaas(empresaId: string): Promise<{
 }
 
 type ExtratoBrutoAsaas = {
-  data: Array<{ id: string; date: string; description: string; value: number }>;
+  data: Array<{
+    id: string;
+    date: string;
+    description: string;
+    value: number;
+    externalReference?: string | null;
+  }>;
   hasMore: boolean;
   limit: number;
   offset: number;
@@ -107,6 +113,7 @@ function normalizarTransacao(t: {
   date: string;
   description: string;
   value: number;
+  externalReference?: string | null;
 }): LancamentoAsaas {
   return {
     id: t.id,
@@ -114,6 +121,7 @@ function normalizarTransacao(t: {
     descricao: t.description,
     valor: t.value,
     tipo: t.value < 0 ? "despesa" : "receita",
+    referencia: t.externalReference || null,
   };
 }
 

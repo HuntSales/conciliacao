@@ -268,12 +268,16 @@ function ConciliacaoPage() {
         asaasId: asaas.id,
         granatumId: granatum.id,
         data: granatum.data,
-        valor: granatum.valor,
+        valor: granatum.pagoComAtraso ? asaas.valor : granatum.valor,
         tipo: "manual",
         descricao: campos.descricao,
         categoriaId: campos.categoriaId ?? undefined,
         centroCustoId: campos.centroCustoId,
         ...(granatum.pago ? {} : { baixarEm: asaas.data }),
+        // Pago com atraso: juros/multa entram no próprio lançamento.
+        ...(!granatum.pago && granatum.pagoComAtraso
+          ? { ajustarValor: { de: granatum.valor, para: asaas.valor } }
+          : {}),
       },
     });
   };

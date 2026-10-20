@@ -352,6 +352,12 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
     pra trás, igual à busca manual. Sem bater, fica em hoje.
     Depois pediu pra remover o "Conciliar todas as sugestões" (o "Lançar e
     conciliar" já faz isso) e deixar o botão único verde, em destaque.
+29. **Pago com atraso, com juros/multa (2026-10-20)**: muda a decisão do item
+    25 ("juros/multa não casam"). Caso real da ATM: R$ 3.688,30 vencido em
+    19/10, recebido R$ 3.920,78 em 20/10 (+6,3%), referência "7444" nos dois
+    lados. Decisões dele: até 10 dias de atraso e até 10% a mais, nunca
+    desconto, e a diferença vai **no mesmo lançamento** (o valor passa pro
+    recebido na baixa), não num lançamento de juros separado.
 
 ## Como o William prefere trabalhar
 
@@ -382,7 +388,9 @@ lançamentos em uma categoria com filhos"`**. Causa: o seletor de categoria/cent
   categoria ~20 s por causa dos 180 dias. Se incomodar, a alavanca proposta
   é reduzir `DIAS_HISTORICO_GRANATUM` pra 60.
 - **Validar na tela (entregue em 2026-10-17, só testes/typecheck)**: ajuste
-  ao saldo ao abrir a conciliação e o "Lançar e conciliar" (item 28).
+  ao saldo ao abrir a conciliação e o "Lançar e conciliar" (item 28); pago
+  com atraso (item 29) — conferir a ATM e se o valor ajustado aparece certo
+  no Granatum depois da baixa.
 - Outras listagens via MCP (categorias, centros, contas, extrato do Asaas em
   páginas de 100) não passaram pela mesma checagem do corte de 100 mil
   caracteres — hoje cabem, mas se alguma "sumir" em silêncio, começar por aí.
