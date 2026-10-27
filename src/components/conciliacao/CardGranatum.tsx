@@ -22,7 +22,7 @@ import type { CategoriaGranatum, CentroCustoGranatum } from "@/lib/mcp/tipos";
 import type { ModoVinculo } from "./CardAsaas";
 import { AvisoSugestao } from "./AvisoSugestao";
 
-/** O que vai pro Granatum ao salvar/confirmar — fica na página pra "Conciliar todas" ler. */
+/** O que vai pro Granatum ao salvar/confirmar — fica na página pro "Lançar e conciliar" ler. */
 export type CamposGranatum = {
   descricao: string;
   categoriaId: string | null;
@@ -76,7 +76,7 @@ export function CardGranatum({
   onDesfazer?: (() => void) | undefined;
   /** Recebe o que está nos campos do card — pode ter sido editado/pré-preenchido. */
   onConfirmarSugestao?: ((campos: CamposGranatum) => void) | undefined;
-  /** Sugestão cuja ligação o usuário interrompeu (fica fora do "Conciliar todas"). */
+  /** Sugestão cuja ligação o usuário interrompeu (fica fora do "Lançar e conciliar"). */
   interrompida?: boolean | undefined;
   onAlternarInterrupcao?: (() => void) | undefined;
   onIniciarVinculo: () => void;

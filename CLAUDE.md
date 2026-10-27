@@ -15,6 +15,12 @@ Todo texto de UI e comentário de código é em português (pt-BR), tom direto/i
 sem emojis — mesma convenção do projeto irmão Multi MCPs. Ver `memoria.md` para
 histórico, infraestrutura e decisões; este arquivo é sobre arquitetura de código.
 
+**Documentação para o usuário** (pedido explícito, 2026-10-27):
+`docs/documentacao.md` é a fonte da verdade e a página "Conciliação" no Notion
+(Hunt Sales → Doc Sistemas, https://app.notion.com/p/4065227e0f868183a005ec43ea743513)
+é espelho dele. Toda mudança que o usuário perceba atualiza os dois, junto com
+este arquivo e o `memoria.md`, no mesmo commit/deploy.
+
 ## Commands
 
 ```sh
